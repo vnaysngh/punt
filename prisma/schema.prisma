@@ -1,0 +1,118 @@
+generator client {
+  provider        = "prisma-client-js"
+  engineType      = "library"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+model User {
+  id          String   @id @default(cuid())
+  partyId     String   @unique
+  email       String?
+  publicKey   String?
+  appBalance  Float    @default(0)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  deposits    Deposit[]
+  bets        Bet[]
+  withdrawals Withdrawal[]
+
+  @@map("users")
+}
+
+model Market {
+  id          String       @id @default(cuid())
+  question    String
+  description String?
+  category    String       @default("crypto")
+  assetPair   String
+  startPrice  Float
+  closePrice  Float?
+  direction   String?
+  status      MarketStatus @default(OPEN)
+  openAt      DateTime     @default(now())
+  closeAt     DateTime
+  settledAt   DateTime?
+  totalUp     Float        @default(0)
+  totalDown   Float        @default(0)
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+
+  bets        Bet[]
+
+  @@map("markets")
+}
+
+model Bet {
+  id        String    @id @default(cuid())
+  userId    String
+  marketId  String
+  direction String
+  amount    Float
+  payout    Float?
+  status    BetStatus @default(PENDING)
+  placedAt  DateTime  @default(now())
+  settledAt DateTime?
+
+  user   User   @relation(fields: [userId], references: [id])
+  market Market @relation(fields: [marketId], references: [id])
+
+  @@map("bets")
+}
+
+model Deposit {
+  id        String        @id @default(cuid())
+  userId    String
+  amount    Float
+  txId      String?
+  status    DepositStatus @default(PENDING)
+  createdAt DateTime      @default(now())
+  updatedAt DateTime      @updatedAt
+
+  user User @relation(fields: [userId], references: [id])
+
+  @@map("deposits")
+}
+
+model Withdrawal {
+  id        String           @id @default(cuid())
+  userId    String
+  amount    Float
+  txId      String?
+  status    WithdrawalStatus @default(PENDING)
+  createdAt DateTime         @default(now())
+  updatedAt DateTime         @updatedAt
+
+  user User @relation(fields: [userId], references: [id])
+
+  @@map("withdrawals")
+}
+
+enum MarketStatus {
+  OPEN
+  CLOSED
+  SETTLED
+  CANCELLED
+}
+
+enum BetStatus {
+  PENDING
+  WON
+  LOST
+  REFUNDED
+}
+
+enum DepositStatus {
+  PENDING
+  CONFIRMED
+  FAILED
+}
+
+enum WithdrawalStatus {
+  PENDING
+  CONFIRMED
+  FAILED
+}
