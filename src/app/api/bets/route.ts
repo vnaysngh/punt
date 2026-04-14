@@ -45,7 +45,7 @@ export async function GET(req: NextRequest) {
     const nextCursor = hasMore ? page[page.length - 1].id : null;
 
     // Serialize Decimal → number for all money fields
-    const serialized = page.map((b) => ({
+    const serialized = page.map((b: (typeof bets)[number]) => ({
       ...b,
       amount:  b.amount.toNumber(),
       payout:  b.payout?.toNumber() ?? null,
