@@ -4,7 +4,7 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
-    "build": "next build",
+    "build": "prisma generate && next build",
     "start": "next start",
     "lint": "eslint",
     "cron": "ts-node --project tsconfig.cron.json -r dotenv/config -r tsconfig-paths/register src/workers/start-cron.ts",
