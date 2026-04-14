@@ -3,6 +3,7 @@ import { prisma } from "@/lib/prisma";
 import { getBtcPrice } from "@/lib/price";
 import { verifyCronSecret } from "@/lib/cron-auth";
 import { addMinutes } from "date-fns";
+import type { Bet } from "@prisma/client";
 
 export const dynamic = "force-dynamic";
 
@@ -33,7 +34,7 @@ async function settleMarket(marketId: string, closePrice: number) {
   const startPrice  = market.startPrice.toNumber();
   const totalUp     = market.totalUp.toNumber();
   const totalDown   = market.totalDown.toNumber();
-  const bets: BetRow[] = market.bets.map((b) => ({
+  const bets: BetRow[] = market.bets.map((b: Bet) => ({
     id:        b.id,
     userId:    b.userId,
     direction: b.direction,

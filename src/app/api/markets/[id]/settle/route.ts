@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getBtcPrice } from "@/lib/price";
 import { verifyCronSecret } from "@/lib/cron-auth";
+import type { Bet } from "@prisma/client";
 
 type BetRow = { id: string; userId: string; direction: string; amount: number };
 
@@ -43,7 +44,7 @@ export async function POST(
     const startPrice  = market.startPrice.toNumber();
     const totalUp     = market.totalUp.toNumber();
     const totalDown   = market.totalDown.toNumber();
-    const bets: BetRow[] = market.bets.map((b) => ({
+    const bets: BetRow[] = market.bets.map((b: Bet) => ({
       id:        b.id,
       userId:    b.userId,
       direction: b.direction,
