@@ -45,7 +45,7 @@ export async function GET(
     const page    = hasMore ? bets.slice(0, limit) : bets;
     const nextCursor = hasMore ? page[page.length - 1].id : null;
 
-    const masked = page.map((b) => ({
+    const masked = page.map((b: (typeof bets)[number]) => ({
       id:        b.id,
       direction: b.direction,
       // Do NOT expose individual bet amounts publicly — only aggregate totals

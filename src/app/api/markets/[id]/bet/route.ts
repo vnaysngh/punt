@@ -115,10 +115,13 @@ export async function POST(
       return NextResponse.json({ error: "Insufficient app balance" }, { status: 400 });
     }
 
-    let bet: { id: string; amount: { toNumber(): number }; payout: { toNumber(): number } | null; [k: string]: unknown };
-    let updatedUser: { appBalance: { toNumber(): number }; [k: string]: unknown };
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    let bet: any;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    let updatedUser: any;
     try {
-      [bet, updatedUser] = await prisma.$transaction(async (tx) => {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      [bet, updatedUser] = await prisma.$transaction(async (tx: any) => {
         // One bet per user per market — also backed by @@unique([userId, marketId])
         const existing = await tx.bet.findFirst({ where: { userId: user.id, marketId } });
         if (existing) throw new Error("DUPLICATE_BET");
@@ -159,7 +162,7 @@ export async function POST(
           },
         });
 
-        return [newBet, updated] as const;
+        return [newBet, updated];
       });
     } catch (err) {
       const msg = err instanceof Error ? err.message : "";

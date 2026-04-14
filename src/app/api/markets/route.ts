@@ -151,7 +151,7 @@ export async function GET() {
       prisma.market.count(),
     ]);
 
-    const serialized = markets.map((m) => ({
+    const serialized = markets.map((m: (typeof markets)[number]) => ({
       ...m,
       startPrice: m.startPrice.toNumber(),
       closePrice: m.closePrice?.toNumber() ?? null,
