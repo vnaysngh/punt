@@ -15,6 +15,7 @@ async function callAdmin(path: string, method: "GET" | "POST" = "POST") {
       headers: {
         "Content-Type": "application/json",
         "x-cron-secret": CRON_SECRET,
+        "User-Agent": "Punt-Cron-Worker/1.0",
       },
     });
     const body = await res.json().catch(() => ({}));
