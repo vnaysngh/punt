@@ -24,6 +24,8 @@ const FRACS = [
   { label: "MAX", f: 1 },
 ];
 
+const PLATFORM_FEE = 0.05; // 5% — must match server
+
 const MODAL: Variants = {
   hidden: { opacity: 0, scale: 0.94, y: 24 },
   visible: { opacity: 1, scale: 1, y: 0, transition: { type: "spring" as const, damping: 28, stiffness: 350 } },
@@ -48,7 +50,8 @@ export default function BetModal({ market, open, onClose, onBetPlaced }: Props) 
   const winningPool = direction === "UP"
     ? market.totalUp + (isValid && direction === "UP" ? parsed : 0)
     : market.totalDown + (isValid && direction === "DOWN" ? parsed : 0);
-  const potentialPayout = winningPool > 0 ? (parsed / winningPool) * potentialPool : 0;
+  const adjustedPool = potentialPool * (1 - PLATFORM_FEE);
+  const potentialPayout = winningPool > 0 ? (parsed / winningPool) * adjustedPool : 0;
   const profit = potentialPayout - parsed;
 
   const handleBet = async () => {
@@ -212,7 +215,7 @@ export default function BetModal({ market, open, onClose, onBetPlaced }: Props) 
                             {profit >= 0 ? "+" : ""}{profit.toFixed(6)}
                           </span>
                         </div>
-                        <p className="text-white/15 text-[10px]">* Estimate based on current pool. Final payout may vary.</p>
+                        <p className="text-white/15 text-[10px]">* Estimate after 5% platform fee. Final payout depends on pool at close.</p>
                       </motion.div>
                     )}
 

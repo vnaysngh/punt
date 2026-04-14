@@ -45,6 +45,18 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Invalid partyId" }, { status: 400 });
     }
 
+    // Validate publicKey if provided (should be hex string from wallet)
+    if (publicKey !== undefined && publicKey !== null) {
+      if (
+        typeof publicKey !== "string" ||
+        publicKey.length < 16 ||
+        publicKey.length > 256 ||
+        !/^[0-9a-fA-F]+$/.test(publicKey)
+      ) {
+        return NextResponse.json({ error: "Invalid publicKey" }, { status: 400 });
+      }
+    }
+
     // Validate email format if provided
     if (email !== undefined && email !== null) {
       if (typeof email !== "string" || email.length > 320 || !email.includes("@")) {

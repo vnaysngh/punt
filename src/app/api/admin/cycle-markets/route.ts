@@ -10,9 +10,10 @@ export const dynamic = "force-dynamic";
 // All arithmetic uses integer satoshi math to stay precise.
 type BetRow = { id: string; userId: string; direction: string; amount: number };
 
-const SATS    = 1e8;
-const toSats  = (n: number) => Math.round(n * SATS);
-const fromSats = (n: number) => n / SATS;
+const SATS         = 1e8;
+const toSats       = (n: number) => Math.round(n * SATS);
+const fromSats     = (n: number) => n / SATS;
+const PLATFORM_FEE = 0.05; // 5% — deducted from total pool before winner distribution (PancakeSwap model)
 
 async function settleMarket(marketId: string, closePrice: number) {
   const market = await prisma.market.findUnique({
@@ -21,6 +22,12 @@ async function settleMarket(marketId: string, closePrice: number) {
   });
 
   if (!market || market.status === "SETTLED") return null;
+
+  // Safety: never settle a market whose close time is still in the future
+  if (market.closeAt.getTime() > Date.now()) {
+    console.warn(`[cycle-markets] Skipping ${marketId} — not expired yet (closeAt=${market.closeAt.toISOString()})`);
+    return null;
+  }
 
   // Convert Decimal → number at the boundary
   const startPrice  = market.startPrice.toNumber();
@@ -77,12 +84,16 @@ async function settleMarket(marketId: string, closePrice: number) {
   const winnerBets = bets.filter((b) => b.direction === winningDirection);
   const loserBets  = bets.filter((b) => b.direction !== winningDirection);
 
-  const totalPoolSats   = toSats(totalPool);
-  const winningPoolSats = toSats(winningPool);
+  // 5% platform fee — deducted from total pool before distribution (PancakeSwap model)
+  // adjustedPool = totalPool × 0.95 → distributed to winners
+  // platformFee  = totalPool × 0.05 → kept by platform (stays in app wallet, never distributed)
+  const adjustedPoolSats = Math.floor(toSats(totalPool) * (1 - PLATFORM_FEE));
+  const winningPoolSats  = toSats(winningPool);
+  const platformFee      = fromSats(toSats(totalPool) - adjustedPoolSats);
 
   const payouts = winnerBets.map((bet) => {
     const betSats    = toSats(bet.amount);
-    const payoutSats = Math.floor((betSats * totalPoolSats) / winningPoolSats);
+    const payoutSats = Math.floor((betSats * adjustedPoolSats) / winningPoolSats);
     return { bet, payout: fromSats(payoutSats) };
   });
 
@@ -111,7 +122,8 @@ async function settleMarket(marketId: string, closePrice: number) {
     ),
   ]);
 
-  return { marketId, closePrice, winningDirection, winners: winnerBets.length, losers: loserBets.length };
+  console.log(`[cycle-markets] Fee collected: ${platformFee} CBTC from market ${marketId}`);
+  return { marketId, closePrice, winningDirection, winners: winnerBets.length, losers: loserBets.length, platformFee };
 }
 
 async function runCycle(now: Date) {

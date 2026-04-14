@@ -18,6 +18,9 @@ const FRACS = [
   { label: "MAX", f: 1 },
 ];
 
+const PLATFORM_FEE = 0.05;      // 5% — must match server
+const LOCK_BUFFER_MS = 5 * 60 * 1000; // 5 min lock before close — must match server
+
 type BetStep = "input" | "submitting" | "success" | "error";
 
 export default function MarketsPage() {
@@ -148,6 +151,13 @@ export default function MarketsPage() {
     setTimerExpired(false);
   }, [liveMarket?.id]);
 
+  // Tick every second so bettingLocked flips in real-time
+  const [now, setNow] = useState(Date.now());
+  useEffect(() => {
+    const id = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(id);
+  }, []);
+
   const myBetMap = myBets.reduce<Record<string, Bet>>((acc, b: Bet) => { acc[b.marketId] = b; return acc; }, {});
 
   // Bet logic
@@ -155,12 +165,20 @@ export default function MarketsPage() {
   const totalPool = liveMarket ? liveMarket.totalUp + liveMarket.totalDown : 0;
   const upPct = totalPool > 0 ? (liveMarket!.totalUp / totalPool) * 100 : 50;
   const downPct = 100 - upPct;
-  const isValid = direction !== null && parsed > 0 && parsed <= appBalance && liveMarket !== null;
+
+  // Betting locks 5 min before close (server enforces this too)
+  const bettingLocked = liveMarket
+    ? now >= new Date(liveMarket.closeAt).getTime() - LOCK_BUFFER_MS
+    : false;
+
+  const isValid = direction !== null && parsed > 0 && parsed <= appBalance && liveMarket !== null && !bettingLocked;
   const potentialPool = totalPool + (isValid ? parsed : 0);
   const winningPool = direction === "UP"
     ? (liveMarket?.totalUp ?? 0) + (isValid && direction === "UP" ? parsed : 0)
     : (liveMarket?.totalDown ?? 0) + (isValid && direction === "DOWN" ? parsed : 0);
-  const potentialPayout = winningPool > 0 && isValid ? (parsed / winningPool) * potentialPool : 0;
+  // Payout estimate includes 5% platform fee (deducted from pool before distribution)
+  const adjustedPool = potentialPool * (1 - PLATFORM_FEE);
+  const potentialPayout = winningPool > 0 && isValid ? (parsed / winningPool) * adjustedPool : 0;
   const profit = potentialPayout - (isValid ? parsed : 0);
 
   const myBet = liveMarket ? myBetMap[liveMarket.id] : null;
@@ -354,9 +372,16 @@ export default function MarketsPage() {
               >
                 <div className="h-px bg-gradient-to-r from-transparent via-[#28cc95]/30 to-transparent" />
                 <div className="p-5 flex flex-col flex-1">
-                  <p className="text-white/40 text-[11px] uppercase tracking-widest font-semibold mb-4" style={{ fontFamily: "var(--font-space-mono)" }}>
-                    Place Bet
-                  </p>
+                  <div className="flex items-center justify-between mb-4">
+                    <p className="text-white/40 text-[11px] uppercase tracking-widest font-semibold" style={{ fontFamily: "var(--font-space-mono)" }}>
+                      Place Bet
+                    </p>
+                    {bettingLocked && isOpen && (
+                      <span className="flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-lg" style={{ background: "rgba(251,191,36,0.1)", color: "#fbbf24", border: "1px solid rgba(251,191,36,0.2)" }}>
+                        <Lock className="w-2.5 h-2.5" /> LOCKED
+                      </span>
+                    )}
+                  </div>
 
                   <AnimatePresence mode="wait">
                     {step === "input" && (
@@ -370,8 +395,8 @@ export default function MarketsPage() {
                             return (
                               <button
                                 key={dir}
-                                onClick={() => connected && isOpen && !myBet ? setDirection(dir) : undefined}
-                                disabled={!connected || !isOpen || !!myBet}
+                                onClick={() => connected && isOpen && !myBet && !bettingLocked ? setDirection(dir) : undefined}
+                                disabled={!connected || !isOpen || !!myBet || bettingLocked}
                                 className={clsx(
                                   "flex flex-col items-center justify-center gap-1 py-4 rounded-xl font-bold text-sm transition-all duration-200",
                                   !connected || !isOpen || !!myBet ? "opacity-40 cursor-not-allowed" : "cursor-pointer hover:opacity-90"
@@ -417,7 +442,7 @@ export default function MarketsPage() {
                               step="0.001"
                               min="0"
                               max={appBalance}
-                              disabled={!connected || !isOpen || !!myBet}
+                              disabled={!connected || !isOpen || !!myBet || bettingLocked}
                               className="w-full bg-transparent text-white text-xl font-bold px-4 pt-3 pb-1 placeholder-white/10 outline-none disabled:opacity-40"
                               style={{ fontFamily: "var(--font-space-mono)" }}
                             />
@@ -431,7 +456,7 @@ export default function MarketsPage() {
                               <button
                                 key={label}
                                 onClick={() => setAmount((appBalance * f).toFixed(5))}
-                                disabled={!connected || !isOpen || !!myBet}
+                                disabled={!connected || !isOpen || !!myBet || bettingLocked}
                                 className="py-1.5 rounded-lg text-xs font-semibold transition-all border border-white/[0.06] hover:border-white/[0.14] bg-white/[0.02] hover:bg-white/[0.06] text-white/35 hover:text-white/70 disabled:opacity-30 disabled:cursor-not-allowed"
                                 style={{ fontFamily: "var(--font-space-mono)" }}
                               >
@@ -459,7 +484,7 @@ export default function MarketsPage() {
                                 {profit >= 0 ? "+" : ""}{profit.toFixed(6)}
                               </span>
                             </div>
-                            <p className="text-white/15 text-[10px]">Estimate. Final payout depends on pool at close.</p>
+                            <p className="text-white/15 text-[10px]">Estimate after 5% platform fee. Final payout depends on pool at close.</p>
                           </motion.div>
                         )}
 
@@ -478,6 +503,10 @@ export default function MarketsPage() {
                           ) : myBet ? (
                             <div className="w-full py-3 rounded-xl text-center text-white/30 text-sm font-medium" style={{ background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.06)", fontFamily: "var(--font-syne)" }}>
                               Bet placed · waiting for close
+                            </div>
+                          ) : bettingLocked && isOpen ? (
+                            <div className="w-full py-3 rounded-xl text-center text-sm font-medium flex items-center justify-center gap-2" style={{ background: "rgba(251,191,36,0.06)", border: "1px solid rgba(251,191,36,0.15)", color: "rgba(251,191,36,0.7)", fontFamily: "var(--font-syne)" }}>
+                              <Lock className="w-3.5 h-3.5" /> Betting locked · waiting for close
                             </div>
                           ) : !isOpen ? (
                             <div className="w-full py-3 rounded-xl text-center text-white/25 text-sm" style={{ background: "rgba(255,255,255,0.02)", border: "1px solid rgba(255,255,255,0.05)" }}>
@@ -557,7 +586,8 @@ export default function MarketsPage() {
             {/* My bet — shown below chart+panel if placed */}
             {myBet && (() => {
               const myPool = myBet.direction === "UP" ? liveMarket.totalUp : liveMarket.totalDown;
-              const estPayout = myPool > 0 ? (myBet.amount / myPool) * totalPool : myBet.amount;
+              const adjustedTotalPool = totalPool * (1 - PLATFORM_FEE);
+              const estPayout = myPool > 0 ? (myBet.amount / myPool) * adjustedTotalPool : myBet.amount;
               const estProfit = estPayout - myBet.amount;
               const isUp = myBet.direction === "UP";
               return (
@@ -595,7 +625,7 @@ export default function MarketsPage() {
                       </p>
                     </div>
                   </div>
-                  <p className="text-white/10 text-[10px] mt-2">Live estimate · updates as more bets come in</p>
+                  <p className="text-white/10 text-[10px] mt-2">Live estimate after 5% fee · updates as more bets come in</p>
                 </motion.div>
               );
             })()}

@@ -19,8 +19,22 @@ export async function GET(req: NextRequest) {
   }
 
   // Validate timestamps are numbers
-  if (isNaN(Number(startTime)) || isNaN(Number(endTime))) {
+  const startMs = Number(startTime);
+  const endMs   = Number(endTime);
+  if (isNaN(startMs) || isNaN(endMs)) {
     return NextResponse.json({ error: "Invalid timestamps" }, { status: 400 });
+  }
+
+  // Cap time range to 24 hours to prevent abuse (requesting years of data)
+  const MAX_RANGE_MS = 24 * 60 * 60 * 1000;
+  if (endMs - startMs > MAX_RANGE_MS || endMs - startMs < 0) {
+    return NextResponse.json({ error: "Time range must be between 0 and 24 hours" }, { status: 400 });
+  }
+
+  // Reject timestamps too far in the future (> 1 hour ahead)
+  const now = Date.now();
+  if (startMs > now + 3_600_000 || endMs > now + 3_600_000) {
+    return NextResponse.json({ error: "Timestamps too far in the future" }, { status: 400 });
   }
 
   try {

@@ -7,9 +7,10 @@ export const dynamic = "force-dynamic";
 
 // Work entirely in number (float64) after converting Decimal at the boundary.
 type BetRow = { id: string; userId: string; direction: string; amount: number };
-const SATS     = 1e8;
-const toSats   = (n: number) => Math.round(n * SATS);
-const fromSats = (n: number) => n / SATS;
+const SATS         = 1e8;
+const toSats       = (n: number) => Math.round(n * SATS);
+const fromSats     = (n: number) => n / SATS;
+const PLATFORM_FEE = 0.05; // 5% — deducted from total pool before winner distribution
 
 /**
  * Settle a single expired market. Duplicated from cycle-markets so this route
@@ -21,6 +22,9 @@ async function settleMarketInline(marketId: string, closePrice: number) {
     include: { bets: true },
   });
   if (!market || market.status === "SETTLED") return;
+
+  // Safety: never settle a market whose close time is still in the future
+  if (market.closeAt.getTime() > Date.now()) return;
 
   const startPrice = market.startPrice.toNumber();
   const totalUp    = market.totalUp.toNumber();
@@ -58,11 +62,13 @@ async function settleMarketInline(marketId: string, closePrice: number) {
 
   const winnerBets = bets.filter((b) => b.direction === winningDirection);
   const loserBets  = bets.filter((b) => b.direction !== winningDirection);
-  const totalPoolSats   = toSats(totalPool);
-  const winningPoolSats = toSats(winningPool);
+
+  // 5% platform fee from total pool before distribution
+  const adjustedPoolSats = Math.floor(toSats(totalPool) * (1 - PLATFORM_FEE));
+  const winningPoolSats  = toSats(winningPool);
 
   const payouts = winnerBets.map((bet) => {
-    const payoutSats = Math.floor((toSats(bet.amount) * totalPoolSats) / winningPoolSats);
+    const payoutSats = Math.floor((toSats(bet.amount) * adjustedPoolSats) / winningPoolSats);
     return { bet, payout: fromSats(payoutSats) };
   });
 

@@ -6,6 +6,12 @@ import { getPendingTransferInstructions, acceptTransferInstruction } from "@/lib
 const MIN_DEPOSIT = 0.00001; // 1000 satoshis
 const MAX_DEPOSIT = 100;     // 100 CBTC
 
+// In-memory lock to prevent same user from running concurrent deposit polls.
+// Without this, a user could open 10 tabs and hammer /api/deposit concurrently,
+// and while the DB unique constraint prevents double-credit, they'd still waste
+// server resources with 10 parallel 30s polling loops.
+const activeDeposits = new Set<string>();
+
 /**
  * POST /api/deposit
  *
@@ -63,6 +69,16 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "User not found" }, { status: 404 });
     }
 
+    // Prevent concurrent deposit polls from the same user
+    if (activeDeposits.has(partyId)) {
+      return NextResponse.json(
+        { error: "A deposit is already being processed. Please wait." },
+        { status: 429 }
+      );
+    }
+    activeDeposits.add(partyId);
+
+    try {
     // Poll the Canton ledger for the TransferInstruction.
     // If the client passed the contractId directly from the SDK result, use it to find fast.
     let matchedTx: Awaited<ReturnType<typeof getPendingTransferInstructions>>[0] | null = null;
@@ -148,6 +164,10 @@ export async function POST(req: NextRequest) {
 
     console.log(`[deposit] Confirmed ${onChainAmount} CBTC | updateId: ${updateId}`);
     return NextResponse.json({ appBalance: updatedUser.appBalance.toNumber() });
+
+    } finally {
+      activeDeposits.delete(partyId);
+    }
 
   } catch (err) {
     console.error("[deposit] ERROR:", String(err), err instanceof Error ? err.stack : "");

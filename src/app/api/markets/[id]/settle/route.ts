@@ -5,9 +5,10 @@ import { verifyCronSecret } from "@/lib/cron-auth";
 
 type BetRow = { id: string; userId: string; direction: string; amount: number };
 
-const SATS    = 1e8;
-const toSats  = (n: number) => Math.round(n * SATS);
-const fromSats = (n: number) => n / SATS;
+const SATS         = 1e8;
+const toSats       = (n: number) => Math.round(n * SATS);
+const fromSats     = (n: number) => n / SATS;
+const PLATFORM_FEE = 0.05; // 5% — deducted from total pool before winner distribution
 
 /**
  * POST /api/markets/[id]/settle
@@ -32,6 +33,11 @@ export async function POST(
 
     if (!market) return NextResponse.json({ error: "Market not found" }, { status: 404 });
     if (market.status === "SETTLED") return NextResponse.json({ error: "Already settled" }, { status: 400 });
+
+    // Safety: never settle a market whose close time is still in the future
+    if (market.closeAt.getTime() > Date.now()) {
+      return NextResponse.json({ error: "Market has not expired yet" }, { status: 400 });
+    }
 
     // Convert Decimal → number at the boundary
     const startPrice  = market.startPrice.toNumber();
@@ -80,12 +86,13 @@ export async function POST(
     const winnerBets = bets.filter((b) => b.direction === winningDirection);
     const loserBets  = bets.filter((b) => b.direction !== winningDirection);
 
-    const totalPoolSats   = toSats(totalPool);
-    const winningPoolSats = toSats(winningPool);
+    // 5% platform fee from total pool before distribution
+    const adjustedPoolSats = Math.floor(toSats(totalPool) * (1 - PLATFORM_FEE));
+    const winningPoolSats  = toSats(winningPool);
 
     const payouts = winnerBets.map((bet) => {
       const betSats    = toSats(bet.amount);
-      const payoutSats = Math.floor((betSats * totalPoolSats) / winningPoolSats);
+      const payoutSats = Math.floor((betSats * adjustedPoolSats) / winningPoolSats);
       return { bet, payout: fromSats(payoutSats) };
     });
 

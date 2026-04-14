@@ -45,9 +45,14 @@ const RATE_RULES: RateRule[] = [
   { prefix: "/api/auth/session",          limit: 10,  windowMs: 60_000 },
   // Deposits: 5 per minute per IP (one real deposit flow takes ~15s)
   { prefix: "/api/deposit",               limit: 5,   windowMs: 60_000 },
-  // Bets: 20 per minute per IP (one per market, generous for multi-tab)
-  { prefix: "/api/markets",               limit: 20,  windowMs: 60_000 },
-  // Users/bets read: 60 per minute (hydrator polls every 15s)
+  // Price: generous but capped — prevents hammering Binance upstream
+  { prefix: "/api/price",                 limit: 30,  windowMs: 60_000 },
+  // Bet placement: 10 per minute per IP — a legit user places 1 per round
+  // More specific prefix must come before /api/markets to match first
+  { prefix: "/api/markets/",              limit: 10,  windowMs: 60_000 },
+  // Market list reads: 30 per minute (hydrator polls every 30s, generous for multi-tab)
+  { prefix: "/api/markets",               limit: 30,  windowMs: 60_000 },
+  // Users/bets read: 60 per minute (hydrator polls every 15-30s)
   { prefix: "/api/users",                 limit: 60,  windowMs: 60_000 },
   { prefix: "/api/bets",                  limit: 60,  windowMs: 60_000 },
   // Admin/cron routes: block entirely from browser — cron worker uses x-cron-secret
@@ -90,6 +95,19 @@ export function middleware(req: NextRequest) {
   // Only apply to API routes
   if (!pathname.startsWith("/api/")) {
     return NextResponse.next();
+  }
+
+  // Block requests with missing or suspicious User-Agent (raw scanners, bots)
+  const ua = req.headers.get("user-agent");
+  if (!ua || ua.length < 5) {
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  }
+
+  // Reject oversized request bodies (> 64 KB) before they reach route handlers
+  // Only applies to POST/PUT/PATCH — the Content-Length header is checked, not the body itself
+  const contentLength = parseInt(req.headers.get("content-length") ?? "0", 10);
+  if (["POST", "PUT", "PATCH"].includes(req.method) && contentLength > 65_536) {
+    return NextResponse.json({ error: "Request body too large" }, { status: 413 });
   }
 
   const ip = getClientIp(req);
