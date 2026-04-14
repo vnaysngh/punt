@@ -3,8 +3,6 @@ import { prisma } from "@/lib/prisma";
 import { getBtcPrice } from "@/lib/price";
 import { verifyCronSecret } from "@/lib/cron-auth";
 import { addMinutes } from "date-fns";
-import type { Bet } from "@prisma/client";
-
 export const dynamic = "force-dynamic";
 
 // Work entirely in number (float64) after converting Decimal at the boundary.
@@ -34,7 +32,7 @@ async function settleMarket(marketId: string, closePrice: number) {
   const startPrice  = market.startPrice.toNumber();
   const totalUp     = market.totalUp.toNumber();
   const totalDown   = market.totalDown.toNumber();
-  const bets: BetRow[] = market.bets.map((b: Bet) => ({
+  const bets: BetRow[] = market.bets.map((b: { id: string; userId: string; direction: string; amount: { toNumber(): number } }) => ({
     id:        b.id,
     userId:    b.userId,
     direction: b.direction,

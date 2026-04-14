@@ -2,7 +2,6 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getBtcPrice } from "@/lib/price";
 import { addMinutes } from "date-fns";
-import type { Bet } from "@prisma/client";
 
 export const dynamic = "force-dynamic";
 
@@ -30,7 +29,7 @@ async function settleMarketInline(marketId: string, closePrice: number) {
   const startPrice = market.startPrice.toNumber();
   const totalUp    = market.totalUp.toNumber();
   const totalDown  = market.totalDown.toNumber();
-  const bets: BetRow[] = market.bets.map((b: Bet) => ({
+  const bets: BetRow[] = market.bets.map((b: { id: string; userId: string; direction: string; amount: { toNumber(): number } }) => ({
     id: b.id, userId: b.userId, direction: b.direction, amount: b.amount.toNumber(),
   }));
 

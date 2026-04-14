@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { requireAuth } from "@/lib/api-auth";
-import type { Bet, User } from "@prisma/client";
 
 const MIN_BET    = 0.00001; // 1000 satoshis — prevents spam/dust bets
 const MAX_BET    = 1_000;   // 1000 CBTC hard cap
@@ -116,8 +115,8 @@ export async function POST(
       return NextResponse.json({ error: "Insufficient app balance" }, { status: 400 });
     }
 
-    let bet: Bet;
-    let updatedUser: User;
+    let bet: { id: string; amount: { toNumber(): number }; payout: { toNumber(): number } | null; [k: string]: unknown };
+    let updatedUser: { appBalance: { toNumber(): number }; [k: string]: unknown };
     try {
       [bet, updatedUser] = await prisma.$transaction(async (tx) => {
         // One bet per user per market — also backed by @@unique([userId, marketId])
@@ -160,7 +159,7 @@ export async function POST(
           },
         });
 
-        return [newBet, updated] as [Bet, User];
+        return [newBet, updated] as const;
       });
     } catch (err) {
       const msg = err instanceof Error ? err.message : "";
