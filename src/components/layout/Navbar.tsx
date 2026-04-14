@@ -1,28 +1,59 @@
 "use client";
 
-import { useState } from "react";
-import { motion, AnimatePresence } from "framer-motion";
-import { Bitcoin, Wallet, ChevronDown, LogOut, ArrowDownToLine, LayoutDashboard, Zap } from "lucide-react";
+import { useState, useRef, useEffect } from "react";
+import { motion } from "framer-motion";
+import {
+  Bitcoin,
+  Wallet,
+  ChevronDown,
+  LogOut,
+  ArrowDownToLine,
+  LayoutDashboard,
+  Zap,
+  Loader2
+} from "lucide-react";
 import { useWalletStore } from "@/store/wallet-store";
-import WalletConnectModal from "@/components/wallet/WalletConnectModal";
 import DepositModal from "@/components/wallet/DepositModal";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import clsx from "clsx";
+import { useLoopConnect } from "@/hooks/useLoopConnect";
 
 const NAV_LINKS = [
   { href: "/", label: "Markets" },
-  { href: "/portfolio", label: "Portfolio" },
+  { href: "/portfolio", label: "Portfolio" }
 ];
 
 export default function Navbar() {
-  const [connectOpen, setConnectOpen] = useState(false);
   const [depositOpen, setDepositOpen] = useState(false);
   const [dropdownOpen, setDropdownOpen] = useState(false);
+  const [dropdownPos, setDropdownPos] = useState<{ top: number; right: number } | null>(null);
+  const triggerRef = useRef<HTMLButtonElement>(null);
   const { connected, partyId, walletType, appBalance, disconnect } = useWalletStore();
+  const { connect: handleConnectLoop, connecting } = useLoopConnect();
+  const pathname = usePathname();
+
+  const openDropdown = () => {
+    if (triggerRef.current) {
+      const r = triggerRef.current.getBoundingClientRect();
+      setDropdownPos({ top: r.bottom + 8, right: window.innerWidth - r.right });
+    }
+    setDropdownOpen(true);
+  };
+
+  const closeDropdown = () => setDropdownOpen(false);
+
+  // Close on scroll/resize
+  useEffect(() => {
+    if (!dropdownOpen) return;
+    const close = () => setDropdownOpen(false);
+    window.addEventListener("scroll", close, true);
+    window.addEventListener("resize", close);
+    return () => { window.removeEventListener("scroll", close, true); window.removeEventListener("resize", close); };
+  }, [dropdownOpen]);
 
   const handleDisconnect = async () => {
-    setDropdownOpen(false);
+    closeDropdown();
     try {
       if (walletType === "loop") {
         const { getLoop } = await import("@/lib/loop");
@@ -32,37 +63,23 @@ export default function Navbar() {
         const { disconnectConsoleWallet } = await import("@/lib/console-wallet");
         await disconnectConsoleWallet();
       }
-    } catch {
-      // ignore SDK errors — still clear local state
-    }
+    } catch { /* silent */ }
     disconnect();
   };
-  const pathname = usePathname();
 
-  const shortId = partyId
-    ? `${partyId.slice(0, 6)}...${partyId.slice(-4)}`
-    : null;
+  const shortId = partyId ? `${partyId.slice(0, 6)}...${partyId.slice(-4)}` : null;
 
   return (
     <>
-      <nav className="fixed top-0 inset-x-0 z-40 h-16">
-        {/* Glass background */}
+      <nav className="fixed top-0 inset-x-0 h-16" style={{ zIndex: 400 }}>
+        {/* Glass background — isolated so it doesn't trap dropdown stacking context */}
         <div className="absolute inset-0 bg-[#080811]/80 backdrop-blur-2xl border-b border-white/[0.05]" />
 
         <div className="relative max-w-7xl mx-auto px-4 sm:px-6 h-full flex items-center justify-between gap-6">
           {/* Logo */}
           <Link href="/" className="flex items-center gap-2.5 group shrink-0">
-            <div className="relative w-8 h-8">
-              <div className="absolute inset-0 rounded-lg bg-orange-500 blur-md opacity-40 group-hover:opacity-60 transition-opacity" />
-              <div className="relative w-8 h-8 rounded-lg bg-gradient-to-br from-orange-400 to-orange-600 flex items-center justify-center shadow-lg">
-                <Zap className="w-4 h-4 text-white fill-white" />
-              </div>
-            </div>
-            <span
-              className="text-[22px] font-bold tracking-tight text-white"
-              style={{ fontFamily: "var(--font-syne)" }}
-            >
-              Bet<span className="text-orange-400">CC</span>
+            <span className="text-[22px] font-bold tracking-tight text-white" style={{ fontFamily: "var(--font-syne)" }}>
+              Punt
             </span>
           </Link>
 
@@ -97,137 +114,49 @@ export default function Navbar() {
                 <motion.div
                   initial={{ opacity: 0, scale: 0.8 }}
                   animate={{ opacity: 1, scale: 1 }}
-                  className="hidden sm:flex items-center gap-1.5 h-9 px-3 rounded-xl bg-orange-500/10 border border-orange-500/20"
+                  className="hidden sm:flex items-center gap-1.5 h-9 px-3 rounded-xl bg-[#28cc95]/10 border border-[#28cc95]/20"
                 >
-                  <Bitcoin className="w-3.5 h-3.5 text-orange-400 shrink-0" />
-                  <span
-                    className="text-orange-300 text-sm font-medium tabular-nums"
-                    style={{ fontFamily: "var(--font-space-mono)" }}
-                  >
+                  <Bitcoin className="w-3.5 h-3.5 text-[#28cc95] shrink-0" />
+                  <span className="text-[#5dd9ab] text-sm font-medium tabular-nums" style={{ fontFamily: "var(--font-space-mono)" }}>
                     {appBalance.toFixed(5)}
                   </span>
-                  <span className="text-orange-500/60 text-xs">cBTC</span>
+                  <span className="text-[#28cc95]/60 text-xs">CBTC</span>
                 </motion.div>
 
                 {/* Deposit */}
                 <button
                   onClick={() => setDepositOpen(true)}
-                  className="hidden sm:flex items-center gap-1.5 h-9 px-3.5 rounded-xl border border-white/[0.08] hover:border-orange-500/30 bg-white/[0.03] hover:bg-orange-500/[0.06] text-white/50 hover:text-orange-300 text-sm font-medium transition-all duration-200"
+                  className="hidden sm:flex items-center gap-1.5 h-9 px-3.5 rounded-xl border border-white/[0.08] hover:border-[#28cc95]/30 bg-white/[0.03] hover:bg-[#28cc95]/[0.06] text-white/50 hover:text-[#5dd9ab] text-sm font-medium transition-all duration-200"
                 >
                   <ArrowDownToLine className="w-3.5 h-3.5" />
                   Deposit
                 </button>
 
-                {/* Wallet dropdown */}
-                <div className="relative">
-                  <button
-                    onClick={() => setDropdownOpen((v) => !v)}
-                    className="flex items-center gap-2 h-9 pl-2.5 pr-2 rounded-xl border border-white/[0.08] hover:border-white/[0.14] bg-white/[0.03] hover:bg-white/[0.05] transition-all duration-200"
-                  >
-                    <div
-                      className={clsx(
-                        "w-5 h-5 rounded-md flex items-center justify-center",
-                        walletType === "loop"
-                          ? "bg-orange-500/20"
-                          : "bg-violet-500/20"
-                      )}
-                    >
-                      <Wallet
-                        className={clsx(
-                          "w-3 h-3",
-                          walletType === "loop" ? "text-orange-400" : "text-violet-400"
-                        )}
-                      />
-                    </div>
-                    <span
-                      className="hidden sm:block text-white/50 text-xs"
-                      style={{ fontFamily: "var(--font-space-mono)" }}
-                    >
-                      {shortId}
-                    </span>
-                    <ChevronDown
-                      className={clsx(
-                        "w-3.5 h-3.5 text-white/20 transition-transform duration-200",
-                        dropdownOpen && "rotate-180"
-                      )}
-                    />
-                  </button>
-
-                  <AnimatePresence>
-                    {dropdownOpen && (
-                      <>
-                        <div
-                          className="fixed inset-0 z-10"
-                          onClick={() => setDropdownOpen(false)}
-                        />
-                        <motion.div
-                          initial={{ opacity: 0, y: 6, scale: 0.97 }}
-                          animate={{ opacity: 1, y: 0, scale: 1 }}
-                          exit={{ opacity: 0, y: 4, scale: 0.97 }}
-                          transition={{ duration: 0.15 }}
-                          className="absolute right-0 top-full mt-2 z-20 w-56 glass rounded-2xl shadow-2xl shadow-black/50 overflow-hidden"
-                        >
-                          {/* Header */}
-                          <div className="px-4 pt-3.5 pb-3 border-b border-white/[0.06]">
-                            <p className="text-white/30 text-[11px] uppercase tracking-widest font-medium">Connected via</p>
-                            <p
-                              className="text-white/80 text-sm font-semibold mt-0.5 capitalize"
-                              style={{ fontFamily: "var(--font-syne)" }}
-                            >
-                              {walletType} Wallet
-                            </p>
-                            <p
-                              className="text-white/25 text-[11px] mt-1"
-                              style={{ fontFamily: "var(--font-space-mono)" }}
-                            >
-                              {partyId?.slice(0, 18)}...
-                            </p>
-                          </div>
-
-                          <div className="p-1.5">
-                            <button
-                              onClick={() => { setDepositOpen(true); setDropdownOpen(false); }}
-                              className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl hover:bg-white/[0.05] text-white/50 hover:text-white text-sm font-medium transition-colors"
-                            >
-                              <ArrowDownToLine className="w-4 h-4" />
-                              Deposit cBTC
-                            </button>
-                            <Link
-                              href="/portfolio"
-                              onClick={() => setDropdownOpen(false)}
-                              className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl hover:bg-white/[0.05] text-white/50 hover:text-white text-sm font-medium transition-colors"
-                            >
-                              <LayoutDashboard className="w-4 h-4" />
-                              Portfolio
-                            </Link>
-                          </div>
-
-                          <div className="p-1.5 border-t border-white/[0.05]">
-                            <button
-                              onClick={handleDisconnect}
-                              className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl hover:bg-red-500/[0.08] text-white/30 hover:text-red-400 text-sm font-medium transition-colors"
-                            >
-                              <LogOut className="w-4 h-4" />
-                              Disconnect
-                            </button>
-                          </div>
-                        </motion.div>
-                      </>
-                    )}
-                  </AnimatePresence>
-                </div>
+                {/* Wallet trigger */}
+                <button
+                  ref={triggerRef}
+                  onClick={() => dropdownOpen ? closeDropdown() : openDropdown()}
+                  className="flex items-center gap-2 h-9 pl-2.5 pr-2 rounded-xl border border-white/[0.08] hover:border-white/[0.14] bg-white/[0.03] hover:bg-white/[0.05] transition-all duration-200"
+                >
+                  <div className={clsx("w-5 h-5 rounded-md flex items-center justify-center", walletType === "loop" ? "bg-[#28cc95]/20" : "bg-violet-500/20")}>
+                    <Wallet className={clsx("w-3 h-3", walletType === "loop" ? "text-[#28cc95]" : "text-violet-400")} />
+                  </div>
+                  <span className="hidden sm:block text-white/50 text-xs" style={{ fontFamily: "var(--font-space-mono)" }}>{shortId}</span>
+                  <ChevronDown className={clsx("w-3.5 h-3.5 text-white/20 transition-transform duration-200", dropdownOpen && "rotate-180")} />
+                </button>
               </>
             ) : (
               <button
-                onClick={() => setConnectOpen(true)}
-                className="relative group h-9 px-4 rounded-xl text-sm font-semibold text-white transition-all duration-300 overflow-hidden"
+                onClick={handleConnectLoop}
+                disabled={connecting}
+                className="relative group h-9 px-4 rounded-xl text-sm font-semibold text-black transition-all duration-300 overflow-hidden disabled:opacity-60"
                 style={{ fontFamily: "var(--font-syne)" }}
               >
-                <div className="absolute inset-0 bg-gradient-to-r from-orange-500 to-orange-600 group-hover:from-orange-400 group-hover:to-orange-500 transition-all duration-300" />
-                <div className="absolute inset-0 opacity-0 group-hover:opacity-100 transition-opacity duration-300" style={{ boxShadow: "0 0 20px rgba(249,115,22,0.4)" }} />
-                <span className="relative flex items-center gap-1.5">
-                  <Wallet className="w-3.5 h-3.5" />
-                  Connect Wallet
+                <div className="absolute inset-0 bg-gradient-to-r from-[#28cc95] to-[#1fa876] group-hover:from-[#28cc95] group-hover:to-[#28cc95] transition-all duration-300" />
+                <div className="absolute inset-0 opacity-0 group-hover:opacity-100 transition-opacity duration-300" style={{ boxShadow: "0 0 20px rgba(40,204,149,0.4)" }} />
+                <span className="relative flex items-center gap-1.5 text-black">
+                  {connecting ? <Loader2 className="w-3.5 h-3.5 animate-spin text-black" /> : <Wallet className="w-3.5 h-3.5 text-black" />}
+                  {connecting ? "Connecting…" : "Connect Wallet"}
                 </span>
               </button>
             )}
@@ -235,7 +164,62 @@ export default function Navbar() {
         </div>
       </nav>
 
-      <WalletConnectModal open={connectOpen} onClose={() => setConnectOpen(false)} />
+      {/* Dropdown — rendered OUTSIDE nav so backdrop-blur stacking context can't trap it */}
+      {dropdownOpen && dropdownPos && (
+        <>
+          {/* Backdrop to close on outside click */}
+          <div
+            className="fixed inset-0"
+            style={{ zIndex: 998 }}
+            onClick={closeDropdown}
+          />
+          {/* Dropdown panel */}
+          <div
+            className="fixed w-56 rounded-2xl shadow-2xl shadow-black/60 overflow-hidden"
+            style={{
+              top: dropdownPos.top,
+              right: dropdownPos.right,
+              zIndex: 999,
+              background: "linear-gradient(160deg, #111120 0%, #0d0d1a 100%)",
+              border: "1px solid rgba(255,255,255,0.10)",
+            }}
+          >
+            <div className="h-px bg-gradient-to-r from-transparent via-[#28cc95]/40 to-transparent" />
+            <div className="px-4 pt-3.5 pb-3 border-b border-white/[0.06]">
+              <p className="text-white/30 text-[11px] uppercase tracking-widest font-medium">Connected via</p>
+              <p className="text-white/80 text-sm font-semibold mt-0.5 capitalize" style={{ fontFamily: "var(--font-syne)" }}>{walletType} Wallet</p>
+              <p className="text-white/25 text-[11px] mt-1 truncate" style={{ fontFamily: "var(--font-space-mono)" }}>{partyId?.slice(0, 22)}...</p>
+            </div>
+            <div className="p-1.5">
+              <button
+                onClick={() => { setDepositOpen(true); closeDropdown(); }}
+                className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl hover:bg-white/[0.05] text-white/50 hover:text-white text-sm font-medium transition-colors"
+              >
+                <ArrowDownToLine className="w-4 h-4" />
+                Deposit CBTC
+              </button>
+              <Link
+                href="/portfolio"
+                onClick={closeDropdown}
+                className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl hover:bg-white/[0.05] text-white/50 hover:text-white text-sm font-medium transition-colors"
+              >
+                <LayoutDashboard className="w-4 h-4" />
+                Portfolio
+              </Link>
+            </div>
+            <div className="p-1.5 border-t border-white/[0.05]">
+              <button
+                onClick={handleDisconnect}
+                className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl hover:bg-red-500/[0.08] text-white/30 hover:text-red-400 text-sm font-medium transition-colors"
+              >
+                <LogOut className="w-4 h-4" />
+                Disconnect
+              </button>
+            </div>
+          </div>
+        </>
+      )}
+
       <DepositModal open={depositOpen} onClose={() => setDepositOpen(false)} />
     </>
   );

@@ -7,6 +7,7 @@ import {
   type IChartApi,
   type ISeriesApi,
   type CandlestickData,
+  type WhitespaceData,
   type Time,
   ColorType,
   CrosshairMode,
@@ -29,46 +30,61 @@ type Props = {
 
 async function fetchCandles(openAt: string, closeAt: string): Promise<Candle[]> {
   const startMs = new Date(openAt).getTime();
-  // Always fetch up to now — but clamp to closeAt so we don't get post-round candles
-  const endMs = Math.min(new Date(closeAt).getTime(), Date.now());
+  const endMs   = Math.min(new Date(closeAt).getTime(), Date.now());
 
-  const url = `https://api.binance.com/api/v3/klines?symbol=BTCUSDT&interval=1m&startTime=${startMs}&endTime=${endMs}&limit=20`;
-  const res = await fetch(url);
+  // Use server-side proxy — avoids CSP blocking direct Binance calls from browser
+  const res = await fetch(
+    `/api/price/candles?startTime=${startMs}&endTime=${endMs}&limit=20`,
+    { cache: "no-store" }
+  );
   if (!res.ok) return [];
-  const raw: unknown[][] = await res.json();
-
-  return raw.map((k) => ({
-    time: Math.floor(Number(k[0]) / 1000) as Time,
-    open:  parseFloat(k[1] as string),
-    high:  parseFloat(k[2] as string),
-    low:   parseFloat(k[3] as string),
-    close: parseFloat(k[4] as string),
-  }));
+  return res.json();
 }
 
 export default function PriceChart({ openAt, closeAt, startPrice }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
   const chartRef     = useRef<IChartApi | null>(null);
-  const seriesRef    = useRef<ISeriesApi<"Candlestick", Time, CandlestickData> | null>(null);
+  const seriesRef    = useRef<ISeriesApi<"Candlestick", Time, CandlestickData | WhitespaceData> | null>(null);
   const pollRef      = useRef<ReturnType<typeof setInterval> | null>(null);
 
-  // The full 15-min window in unix seconds
   const openSec  = Math.floor(new Date(openAt).getTime() / 1000);
   const closeSec = Math.floor(new Date(closeAt).getTime() / 1000);
 
   const load = useCallback(async () => {
+    if (!seriesRef.current || !chartRef.current) return;
+
     const candles = await fetchCandles(openAt, closeAt);
-    if (!seriesRef.current || !chartRef.current || candles.length === 0) return;
 
-    seriesRef.current.setData(candles);
+    // Always seed a placeholder flat candle at startPrice for the opening minute
+    // so the chart isn't blank while waiting for the first real candle to form.
+    const openMinSec = openSec - (openSec % 60); // floor to minute boundary
+    const placeholder: Candle = {
+      time:  openMinSec as Time,
+      open:  startPrice,
+      high:  startPrice,
+      low:   startPrice,
+      close: startPrice,
+    };
 
-    // Always pin the visible range to the full 15-min window so candles
-    // spread evenly regardless of how many have formed so far
+    // Merge: real candles override the placeholder if they exist for that time
+    const candleMap = new Map<number, Candle>();
+    candleMap.set(openMinSec, placeholder);
+    for (const c of candles) {
+      candleMap.set(c.time as number, c);
+    }
+
+    // Sort by time ascending — lightweight-charts requires it
+    const merged = Array.from(candleMap.values()).sort(
+      (a, b) => (a.time as number) - (b.time as number)
+    );
+
+    seriesRef.current.setData(merged);
+
     chartRef.current.timeScale().setVisibleRange({
-      from: openSec as Time,
+      from: openSec  as Time,
       to:   closeSec as Time,
     });
-  }, [openAt, closeAt, openSec, closeSec]);
+  }, [openAt, closeAt, openSec, closeSec, startPrice]);
 
   useEffect(() => {
     if (!containerRef.current) return;
@@ -110,13 +126,10 @@ export default function PriceChart({ openAt, closeAt, startPrice }: Props) {
         borderColor: "rgba(255,255,255,0.06)",
         timeVisible: true,
         secondsVisible: false,
-        // Lock both edges so the view never auto-pans away from our range
         fixLeftEdge: true,
         fixRightEdge: true,
-        // Don't auto-scroll to the last bar — we control the range ourselves
         lockVisibleTimeRangeOnResize: true,
       },
-      // Disable user scaling so the 15-min window stays locked
       handleScroll: false,
       handleScale: false,
     });
@@ -130,7 +143,6 @@ export default function PriceChart({ openAt, closeAt, startPrice }: Props) {
       wickDownColor:   "#ef4444",
     });
 
-    // Orange dashed line at the market open price
     series.createPriceLine({
       price: startPrice,
       color: "rgba(249,115,22,0.65)",
@@ -143,12 +155,8 @@ export default function PriceChart({ openAt, closeAt, startPrice }: Props) {
     chartRef.current  = chart;
     seriesRef.current = series;
 
-    // Resize observer
     const ro = new ResizeObserver(() => {
-      const chart = chartRef.current;
-      const container = containerRef.current;
-      if (!chart || !container) return;
-      chart.applyOptions({ width: container.clientWidth });
+      chartRef.current?.applyOptions({ width: containerRef.current?.clientWidth ?? 0 });
     });
     ro.observe(containerRef.current);
 
@@ -165,7 +173,6 @@ export default function PriceChart({ openAt, closeAt, startPrice }: Props) {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [startPrice, openSec, closeSec]);
 
-  // Re-run load when the callback updates (openAt/closeAt change)
   useEffect(() => {
     load();
   }, [load]);
@@ -175,7 +182,6 @@ export default function PriceChart({ openAt, closeAt, startPrice }: Props) {
       className="w-full rounded-2xl overflow-hidden"
       style={{ background: "rgba(255,255,255,0.015)", border: "1px solid rgba(255,255,255,0.06)" }}
     >
-      {/* Header */}
       <div className="flex items-center justify-between px-5 py-3.5 border-b border-white/[0.05]">
         <div className="flex items-center gap-2">
           <span className="w-1.5 h-1.5 rounded-full bg-orange-400 pulse-dot" />
@@ -205,7 +211,6 @@ export default function PriceChart({ openAt, closeAt, startPrice }: Props) {
         </div>
       </div>
 
-      {/* Canvas */}
       <div ref={containerRef} className="w-full" />
     </div>
   );

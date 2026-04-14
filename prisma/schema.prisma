@@ -12,7 +12,7 @@ model User {
   partyId     String   @unique
   email       String?
   publicKey   String?
-  appBalance  Float    @default(0)
+  appBalance  Decimal  @default(0) @db.Decimal(20, 8) // 8 decimal places = 1 satoshi precision
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
@@ -25,19 +25,19 @@ model User {
 
 model Market {
   id          String       @id @default(cuid())
-  question    String
-  description String?
-  category    String       @default("crypto")
-  assetPair   String
-  startPrice  Float
-  closePrice  Float?
-  direction   String?
+  question    String       @db.VarChar(500)
+  description String?      @db.VarChar(2000)
+  category    String       @default("crypto") @db.VarChar(50)
+  assetPair   String       @db.VarChar(20)
+  startPrice  Decimal      @db.Decimal(20, 8)
+  closePrice  Decimal?     @db.Decimal(20, 8)
+  direction   String?      @db.VarChar(10)
   status      MarketStatus @default(OPEN)
   openAt      DateTime     @default(now())
   closeAt     DateTime
   settledAt   DateTime?
-  totalUp     Float        @default(0)
-  totalDown   Float        @default(0)
+  totalUp     Decimal      @default(0) @db.Decimal(20, 8)
+  totalDown   Decimal      @default(0) @db.Decimal(20, 8)
   createdAt   DateTime     @default(now())
   updatedAt   DateTime     @updatedAt
 
@@ -50,9 +50,9 @@ model Bet {
   id        String    @id @default(cuid())
   userId    String
   marketId  String
-  direction String
-  amount    Float
-  payout    Float?
+  direction String    @db.VarChar(10)
+  amount    Decimal   @db.Decimal(20, 8)
+  payout    Decimal?  @db.Decimal(20, 8)
   status    BetStatus @default(PENDING)
   placedAt  DateTime  @default(now())
   settledAt DateTime?
@@ -60,14 +60,15 @@ model Bet {
   user   User   @relation(fields: [userId], references: [id])
   market Market @relation(fields: [marketId], references: [id])
 
+  @@unique([userId, marketId]) // one bet per user per market — enforced at DB level
   @@map("bets")
 }
 
 model Deposit {
   id        String        @id @default(cuid())
   userId    String
-  amount    Float
-  txId      String?
+  amount    Decimal       @db.Decimal(20, 8)
+  txId      String?       @unique // contractId — dedup key, unique constraint prevents double-credit
   status    DepositStatus @default(PENDING)
   createdAt DateTime      @default(now())
   updatedAt DateTime      @updatedAt
@@ -80,8 +81,8 @@ model Deposit {
 model Withdrawal {
   id        String           @id @default(cuid())
   userId    String
-  amount    Float
-  txId      String?
+  amount    Decimal          @db.Decimal(20, 8)
+  txId      String?          @unique
   status    WithdrawalStatus @default(PENDING)
   createdAt DateTime         @default(now())
   updatedAt DateTime         @updatedAt

@@ -1,44 +1,29 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
+import { requireAuth } from "@/lib/api-auth";
 
-// POST /api/users - upsert user after wallet connect
-export async function POST(req: NextRequest) {
-  try {
-    const { partyId, email, publicKey } = await req.json();
-
-    if (!partyId) {
-      return NextResponse.json({ error: "partyId required" }, { status: 400 });
-    }
-
-    const user = await prisma.user.upsert({
-      where: { partyId },
-      update: { email, publicKey },
-      create: { partyId, email, publicKey, appBalance: 0 },
-    });
-
-    return NextResponse.json(user);
-  } catch (err) {
-    console.error(err);
-    return NextResponse.json({ error: "Internal server error" }, { status: 500 });
-  }
-}
-
-// GET /api/users?partyId=xxx
+// GET /api/users — returns the authenticated user's own record only
 export async function GET(req: NextRequest) {
   try {
-    const partyId = req.nextUrl.searchParams.get("partyId");
-    if (!partyId) {
-      return NextResponse.json({ error: "partyId required" }, { status: 400 });
-    }
+    const auth = await requireAuth(req);
+    if (auth instanceof NextResponse) return auth;
+    const { partyId } = auth;
 
     const user = await prisma.user.findUnique({ where: { partyId } });
     if (!user) {
       return NextResponse.json({ error: "User not found" }, { status: 404 });
     }
 
-    return NextResponse.json(user);
+    // Convert Decimal → number so the client receives a JSON number, not a string
+    return NextResponse.json({
+      id:         user.id,
+      partyId:    user.partyId,
+      email:      user.email,
+      appBalance: user.appBalance.toNumber(),
+      createdAt:  user.createdAt,
+    });
   } catch (err) {
-    console.error(err);
+    console.error("[users GET]", err);
     return NextResponse.json({ error: "Internal server error" }, { status: 500 });
   }
 }

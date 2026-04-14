@@ -5,6 +5,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import { X, Bitcoin, Loader2, CheckCircle2, AlertCircle, Info } from "lucide-react";
 import { useWalletStore } from "@/store/wallet-store";
 import { submitConsoleTransfer } from "@/lib/console-wallet";
+import { pay as loopPay } from "@/lib/loop-wallet";
 import clsx from "clsx";
 import type { Variants } from "framer-motion";
 
@@ -24,7 +25,7 @@ export default function DepositModal({ open, onClose }: Props) {
   const [step, setStep] = useState<Step>("input");
   const [error, setError] = useState<string | null>(null);
   const [txId, setTxId] = useState<string | null>(null);
-  const { partyId, walletType, setAppBalance } = useWalletStore();
+  const { partyId, walletType, setAppBalance, sessionToken } = useWalletStore();
 
   const reset = () => { setAmount(""); setStep("input"); setError(null); setTxId(null); };
   const handleClose = () => { reset(); onClose(); };
@@ -36,53 +37,61 @@ export default function DepositModal({ open, onClose }: Props) {
   const hasAppParty = !!appPartyId && appPartyId !== "your-app-party-id";
 
   const handleDeposit = async () => {
-    if (!isValid || !partyId) return;
+    if (!isValid || !partyId || !sessionToken) return;
     setStep("confirming");
     setError(null);
 
     try {
-      let submissionId: string | null = null;
-
-      if (hasAppParty && appPartyId) {
-        // ── Real on-chain transfer ──
-        if (walletType === "loop") {
-          // Use loop.wallet.transfer() — works even after refresh (no stored provider needed)
-          const { getLoop } = await import("@/lib/loop");
-          const loop = await getLoop();
-          if (!loop) throw new Error("Loop SDK not available. Please refresh and reconnect.");
-
-          const result = await loop.wallet.transfer(
-            appPartyId,
-            parsed,
-            undefined, // use user's default instrument
-            {
-              requestedAt: new Date(),
-              executeBefore: new Date(Date.now() + 10 * 60 * 1000),
-              memo: "BetCC deposit",
-            }
-          );
-          submissionId = (result as { submission_id?: string })?.submission_id ?? null;
-
-        } else if (walletType === "console") {
-          const expiry = new Date(Date.now() + 10 * 60 * 1000).toISOString();
-          submissionId = await submitConsoleTransfer({
-            from: partyId,
-            to: appPartyId,
-            token: "cBTC",
-            amount: parsed,
-            expireDate: expiry,
-            memo: "BetCC deposit",
-          });
-          if (!submissionId) throw new Error("Transfer rejected or failed in Console Wallet.");
-        }
+      // Require app party to be configured — no dev-mode balance minting in any env
+      if (!hasAppParty || !appPartyId) {
+        throw new Error("App wallet not configured. Set NEXT_PUBLIC_APP_PARTY_ID.");
       }
-      // If no appPartyId configured — dev mode, credit directly (no chain transfer)
 
-      // Credit app balance in DB
+      // Unique memo per deposit — server uses this to find the TransferInstruction on-chain
+      const memo = `PUNT-${partyId.slice(0, 8)}-${Date.now()}`;
+
+      let transferInstructionCid: string | null = null;
+
+      if (walletType === "loop") {
+        const instrumentId = process.env.NEXT_PUBLIC_CBTC_INSTRUMENT_ID;
+        const instrumentAdmin = process.env.NEXT_PUBLIC_CBTC_INSTRUMENT_ADMIN;
+        const instrument = instrumentId && instrumentAdmin
+          ? { instrument_id: instrumentId, instrument_admin: instrumentAdmin }
+          : undefined;
+
+        // Use pay() from loop-wallet — revalidates session, passes amount as string
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const result: any = await loopPay(appPartyId, String(parsed), memo, instrument);
+
+        // Extract contractId from SDK result so server can fast-path match
+        const events = result?.payload?.update_data?.value?.eventsById ?? {};
+        for (const evt of Object.values(events)) {
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          const cid = (evt as any)?.ExercisedTreeEvent?.value?.exerciseResult?.output?.value?.transferInstructionCid;
+          if (cid) { transferInstructionCid = cid; break; }
+        }
+
+      } else if (walletType === "console") {
+        const expiry = new Date(Date.now() + 10 * 60 * 1000).toISOString();
+        await submitConsoleTransfer({
+          from: partyId,
+          to: appPartyId,
+          token: "CBTC",
+          amount: parsed,
+          expireDate: expiry,
+          memo,
+        });
+      }
+
+      // Tell server to find and accept the TransferInstruction on-chain
+      // Server verifies: memo matches, senderPartyId === authenticated user, amount >= expected
       const res = await fetch("/api/deposit", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ partyId, amount: parsed, txId: submissionId }),
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${sessionToken}`,
+        },
+        body: JSON.stringify({ amount: parsed, memo, transferInstructionCid }),
       });
       if (!res.ok) {
         const d = await res.json();
@@ -90,11 +99,12 @@ export default function DepositModal({ open, onClose }: Props) {
       }
       const data = await res.json();
       setAppBalance(data.appBalance);
-      setTxId(submissionId);
+      setTxId(memo);
       setStep("success");
 
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Deposit failed. Please try again.");
+      console.error("[Deposit] failed:", err);
+      setError(err instanceof Error ? err.message : String(err) ?? "Deposit failed. Please try again.");
       setStep("error");
     }
   };
@@ -114,12 +124,12 @@ export default function DepositModal({ open, onClose }: Props) {
             className="relative w-full max-w-[400px] rounded-3xl overflow-hidden shadow-2xl shadow-black/60"
             style={{ background: "linear-gradient(160deg, #111120 0%, #0d0d1a 100%)", border: "1px solid rgba(255,255,255,0.08)" }}
           >
-            <div className="h-px bg-gradient-to-r from-transparent via-orange-500/50 to-transparent" />
+            <div className="h-px bg-gradient-to-r from-transparent via-[#28cc95]/50 to-transparent" />
 
             {/* Header */}
             <div className="flex items-center justify-between px-6 pt-5 pb-4">
               <div>
-                <h2 className="text-white font-bold text-xl" style={{ fontFamily: "var(--font-syne)" }}>Deposit cBTC</h2>
+                <h2 className="text-white font-bold text-xl" style={{ fontFamily: "var(--font-syne)" }}>Deposit CBTC</h2>
                 <p className="text-white/35 text-sm mt-0.5">Fund your app wallet</p>
               </div>
               <button onClick={handleClose} className="w-8 h-8 rounded-xl bg-white/[0.05] hover:bg-white/[0.09] flex items-center justify-center text-white/40 hover:text-white transition-all">
@@ -135,17 +145,17 @@ export default function DepositModal({ open, onClose }: Props) {
                   <motion.div key="input" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="space-y-4">
 
                     {!hasAppParty ? (
-                      <div className="flex gap-2.5 p-3 rounded-2xl" style={{ background: "rgba(249,115,22,0.05)", border: "1px solid rgba(249,115,22,0.12)" }}>
-                        <Info className="w-4 h-4 text-orange-400/70 shrink-0 mt-0.5" />
-                        <p className="text-orange-300/60 text-xs leading-relaxed">
-                          Dev mode — balance credited directly without a real chain transfer. Set <code className="font-mono">NEXT_PUBLIC_APP_PARTY_ID</code> to enable real cBTC transfers.
+                      <div className="flex gap-2.5 p-3 rounded-2xl" style={{ background: "rgba(40,204,149,0.05)", border: "1px solid rgba(40,204,149,0.12)" }}>
+                        <Info className="w-4 h-4 text-[#28cc95]/70 shrink-0 mt-0.5" />
+                        <p className="text-[#5dd9ab]/60 text-xs leading-relaxed">
+                          Dev mode — balance credited directly without a real chain transfer. Set <code className="font-mono">NEXT_PUBLIC_APP_PARTY_ID</code> to enable real CBTC transfers.
                         </p>
                       </div>
                     ) : (
                       <div className="flex gap-2.5 p-3 rounded-2xl" style={{ background: "rgba(59,130,246,0.05)", border: "1px solid rgba(59,130,246,0.1)" }}>
                         <Info className="w-4 h-4 text-blue-400/70 shrink-0 mt-0.5" />
                         <p className="text-blue-300/50 text-xs leading-relaxed">
-                          cBTC will be transferred from your {walletType === "loop" ? "Loop" : "Console"} wallet to the BetCC app wallet. Approve in your wallet when prompted.
+                          CBTC will be transferred from your {walletType === "loop" ? "Loop" : "Console"} wallet to the Punt app wallet. Approve in your wallet when prompted.
                         </p>
                       </div>
                     )}
@@ -153,7 +163,7 @@ export default function DepositModal({ open, onClose }: Props) {
                     {/* Amount */}
                     <div>
                       <p className="text-white/30 text-[11px] uppercase tracking-widest font-medium mb-2">Amount</p>
-                      <div className="rounded-2xl overflow-hidden [&:focus-within]:border-white/[0.08]" style={{ background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.08)" }}>
+                      <div className="rounded-2xl overflow-hidden" style={{ background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.08)" }}>
                         <input
                           type="number"
                           value={amount}
@@ -161,12 +171,12 @@ export default function DepositModal({ open, onClose }: Props) {
                           placeholder="0.00000"
                           step="0.001"
                           min="0"
-                          className="w-full bg-transparent text-white text-3xl font-bold text-center px-4 pt-5 pb-2 placeholder-white/10 outline-none focus:outline-none focus:ring-0"
-                          style={{ fontFamily: "var(--font-space-mono)", boxShadow: "none" }}
+                          className="w-full bg-transparent text-white text-3xl font-bold text-center px-4 pt-5 pb-2 placeholder-white/10"
+                          style={{ fontFamily: "var(--font-space-mono)", outline: "none", boxShadow: "none", border: "none", WebkitAppearance: "none", MozAppearance: "textfield" }}
                         />
                         <div className="flex items-center justify-center gap-1.5 pb-4">
-                          <Bitcoin className="w-3.5 h-3.5 text-orange-400" />
-                          <span className="text-orange-400 text-sm font-semibold">cBTC</span>
+                          <Bitcoin className="w-3.5 h-3.5 text-[#28cc95]" />
+                          <span className="text-[#28cc95] text-sm font-semibold">CBTC</span>
                         </div>
                       </div>
                     </div>
@@ -180,7 +190,7 @@ export default function DepositModal({ open, onClose }: Props) {
                           className={clsx(
                             "py-2.5 rounded-xl text-xs font-semibold transition-all duration-200 border",
                             parseFloat(amount) === a
-                              ? "bg-orange-500/15 border-orange-500/35 text-orange-300"
+                              ? "bg-[#28cc95]/15 border-[#28cc95]/35 text-[#5dd9ab]"
                               : "bg-white/[0.03] border-white/[0.07] text-white/40 hover:text-white/70 hover:bg-white/[0.06] hover:border-white/[0.12]"
                           )}
                           style={{ fontFamily: "var(--font-space-mono)" }}
@@ -193,13 +203,14 @@ export default function DepositModal({ open, onClose }: Props) {
                     <button
                       onClick={handleDeposit}
                       disabled={!isValid}
-                      className="w-full py-3.5 rounded-2xl font-bold text-white text-sm disabled:opacity-30 disabled:cursor-not-allowed transition-all hover:opacity-90 active:scale-[0.98]"
+                      className="w-full py-3.5 rounded-2xl font-bold text-sm disabled:opacity-30 disabled:cursor-not-allowed transition-all hover:opacity-90 active:scale-[0.98]"
                       style={{
-                        background: isValid ? "linear-gradient(135deg, #f97316, #ea580c)" : "rgba(255,255,255,0.05)",
+                        background: isValid ? "linear-gradient(135deg, #28cc95, #1fa876)" : "rgba(255,255,255,0.05)",
+                        color: isValid ? "black" : "white",
                         fontFamily: "var(--font-syne)",
                       }}
                     >
-                      {isValid ? `Deposit ${parsed.toFixed(5)} cBTC` : "Enter an amount"}
+                      {isValid ? `Deposit ${parsed.toFixed(5)} CBTC` : "Enter an amount"}
                     </button>
                   </motion.div>
                 )}
@@ -208,9 +219,9 @@ export default function DepositModal({ open, onClose }: Props) {
                 {step === "confirming" && (
                   <motion.div key="confirming" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="flex flex-col items-center gap-5 py-10">
                     <div className="relative">
-                      <div className="w-20 h-20 rounded-3xl" style={{ background: "rgba(249,115,22,0.06)", border: "1px solid rgba(249,115,22,0.15)" }} />
+                      <div className="w-20 h-20 rounded-3xl" style={{ background: "rgba(40,204,149,0.06)", border: "1px solid rgba(40,204,149,0.15)" }} />
                       <div className="absolute inset-0 flex items-center justify-center">
-                        <Loader2 className="w-8 h-8 text-orange-400 animate-spin" />
+                        <Loader2 className="w-8 h-8 text-[#28cc95] animate-spin" />
                       </div>
                     </div>
                     <div className="text-center">
@@ -238,7 +249,7 @@ export default function DepositModal({ open, onClose }: Props) {
                     </motion.div>
                     <div className="text-center">
                       <p className="text-white font-bold text-lg" style={{ fontFamily: "var(--font-syne)" }}>Deposit Confirmed!</p>
-                      <p className="text-white/40 text-sm mt-1">{parsed.toFixed(5)} cBTC added to your balance</p>
+                      <p className="text-white/40 text-sm mt-1">{parsed.toFixed(5)} CBTC added to your balance</p>
                       {txId && (
                         <p className="text-white/15 text-[11px] mt-2" style={{ fontFamily: "var(--font-space-mono)" }}>
                           tx: {txId.slice(0, 24)}…
@@ -247,8 +258,8 @@ export default function DepositModal({ open, onClose }: Props) {
                     </div>
                     <button
                       onClick={handleClose}
-                      className="px-8 py-2.5 rounded-xl font-semibold text-white text-sm"
-                      style={{ background: "linear-gradient(135deg, #f97316, #ea580c)", fontFamily: "var(--font-syne)" }}
+                      className="px-8 py-2.5 rounded-xl font-semibold text-black text-sm"
+                      style={{ background: "linear-gradient(135deg, #28cc95, #1fa876)", fontFamily: "var(--font-syne)" }}
                     >
                       Start Betting
                     </button>

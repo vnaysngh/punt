@@ -17,6 +17,7 @@ export type Market = {
   settledAt?: string;
   totalUp: number;
   totalDown: number;
+  _count?: { bets: number };
 };
 
 export type Bet = {

@@ -1,48 +1,57 @@
 import { NextRequest, NextResponse } from "next/server";
-import { prisma } from "@/lib/prisma";
-import { getBtcPrice } from "@/lib/price";
-import { addMinutes } from "date-fns";
+import { verifyCronSecret } from "@/lib/cron-auth";
 
-async function ensureSingleMarket() {
-  const now = new Date();
+/**
+ * GET/POST /api/cron/create-market
+ *
+ * Legacy entry point — redirects to the actual lifecycle engine at
+ * /api/admin/cycle-markets. Kept for backwards compatibility with
+ * any external callers, but the real logic lives in cycle-markets.
+ *
+ * Prefer calling /api/admin/cycle-markets directly.
+ */
 
-  // Close expired open markets
-  await prisma.market.updateMany({
-    where: { status: "OPEN", closeAt: { lte: now } },
-    data: { status: "CLOSED" },
-  });
-
-  // If there's already an open market, do nothing
-  const existing = await prisma.market.findFirst({ where: { status: "OPEN" } });
-  if (existing) return existing;
-
-  // Create the one BTC market with live price
-  const startPrice = await getBtcPrice();
-  return prisma.market.create({
-    data: {
-      question: "What will BTC/USD be in 15 minutes?",
-      assetPair: "BTC/USD",
-      category: "crypto",
-      startPrice,
-      openAt: now,
-      closeAt: addMinutes(now, 15),
-      status: "OPEN",
+async function runCycle(baseUrl: string, cronSecret: string) {
+  const res = await fetch(`${baseUrl}/api/admin/cycle-markets`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "x-cron-secret": cronSecret,
     },
+    cache: "no-store",
   });
+  if (!res.ok) {
+    const body = await res.text();
+    throw new Error(`/api/admin/cycle-markets returned ${res.status}: ${body}`);
+  }
+  return res.json();
 }
 
-// GET — called by Vercel Cron every 15 min
 export async function GET(req: NextRequest) {
-  const auth = req.headers.get("authorization");
-  if (auth !== `Bearer ${process.env.CRON_SECRET}`) {
+  if (!verifyCronSecret(req)) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
-  const market = await ensureSingleMarket();
-  return NextResponse.json({ market });
+
+  try {
+    const baseUrl = process.env.APP_BASE_URL ?? "http://localhost:3000";
+    const result = await runCycle(baseUrl, process.env.CRON_SECRET ?? "");
+    return NextResponse.json({ ok: true, result });
+  } catch (err) {
+    console.error("[cron/create-market]", err);
+    return NextResponse.json({ error: String(err) }, { status: 500 });
+  }
 }
 
-// POST — called on app startup / page load to bootstrap if empty
-export async function POST() {
-  const market = await ensureSingleMarket();
-  return NextResponse.json({ market });
+export async function POST(req: NextRequest) {
+  if (!verifyCronSecret(req)) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+  try {
+    const baseUrl = process.env.APP_BASE_URL ?? "http://localhost:3000";
+    const result = await runCycle(baseUrl, process.env.CRON_SECRET ?? "");
+    return NextResponse.json({ ok: true, result });
+  } catch (err) {
+    console.error("[cron/create-market POST]", err);
+    return NextResponse.json({ error: String(err) }, { status: 500 });
+  }
 }

@@ -2,34 +2,44 @@
 
 import { useEffect } from "react";
 import { useWalletStore } from "@/store/wallet-store";
+import { useLoopConnect } from "@/hooks/useLoopConnect";
 
-// Rehydrates the wallet store from localStorage on first client render,
-// then re-fetches the live app balance from the DB.
 export default function WalletHydrator() {
+  const connected = useWalletStore((s) => s.connected);
+  const sessionToken = useWalletStore((s) => s.sessionToken);
+  const setAppBalance = useWalletStore((s) => s.setAppBalance);
+  const { autoConnect } = useLoopConnect();
+
+  const fetchBalance = (token: string) => {
+    fetch("/api/users", {
+      headers: { "Authorization": `Bearer ${token}` },
+      cache: "no-store",
+    })
+      .then((r) => r.json())
+      .then((data) => {
+        if (typeof data.appBalance === "number") setAppBalance(data.appBalance);
+      })
+      .catch(() => {});
+  };
+
+  // Restore session on page load (e.g. after refresh)
   useEffect(() => {
-    // Trigger zustand persist rehydration
-    useWalletStore.persist.rehydrate();
+    autoConnect();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   useEffect(() => {
-    const unsub = useWalletStore.subscribe(async (state) => {
-      // Once rehydrated and connected, fetch fresh balance from DB
-      if (state.connected && state.partyId) {
-        try {
-          const res = await fetch(`/api/users?partyId=${state.partyId}`);
-          if (res.ok) {
-            const data = await res.json();
-            if (typeof data.appBalance === "number") {
-              useWalletStore.getState().setAppBalance(data.appBalance);
-            }
-          }
-        } catch { /* silent */ }
-        // Only need to do this once
-        unsub();
-      }
-    });
-    return () => unsub();
-  }, []);
+    if (!connected || !sessionToken) return;
+    fetchBalance(sessionToken);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [connected, sessionToken]);
+
+  useEffect(() => {
+    if (!connected || !sessionToken) return;
+    const interval = setInterval(() => fetchBalance(sessionToken), 15_000);
+    return () => clearInterval(interval);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [connected, sessionToken]);
 
   return null;
 }

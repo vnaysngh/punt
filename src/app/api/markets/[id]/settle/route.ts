@@ -1,109 +1,113 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getBtcPrice } from "@/lib/price";
+import { verifyCronSecret } from "@/lib/cron-auth";
 
-type BetWithUser = {
-  id: string;
-  userId: string;
-  direction: string;
-  amount: number;
-  status: string;
-};
+type BetRow = { id: string; userId: string; direction: string; amount: number };
 
-// POST /api/markets/[id]/settle
-// Called by cron/admin after 15-minute window closes
-// Provide closePrice to determine winner
+const SATS    = 1e8;
+const toSats  = (n: number) => Math.round(n * SATS);
+const fromSats = (n: number) => n / SATS;
+
+/**
+ * POST /api/markets/[id]/settle
+ * CRON-ONLY. Requires x-cron-secret or Authorization: Bearer CRON_SECRET.
+ * Never accepts a caller-supplied price — always fetches live from exchange.
+ */
 export async function POST(
   req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
+  if (!verifyCronSecret(req)) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
   try {
     const { id: marketId } = await params;
-    const body = await req.json().catch(() => ({}));
-
-    // Use provided closePrice or fetch live BTC price
-    const closePrice: number = body.closePrice ?? await getBtcPrice();
 
     const market = await prisma.market.findUnique({
       where: { id: marketId },
-      include: { bets: { include: { user: true } } },
+      include: { bets: true },
     });
 
-    if (!market) {
-      return NextResponse.json({ error: "Market not found" }, { status: 404 });
-    }
+    if (!market) return NextResponse.json({ error: "Market not found" }, { status: 404 });
+    if (market.status === "SETTLED") return NextResponse.json({ error: "Already settled" }, { status: 400 });
 
-    if (market.status === "SETTLED") {
-      return NextResponse.json({ error: "Market already settled" }, { status: 400 });
-    }
+    // Convert Decimal → number at the boundary
+    const startPrice  = market.startPrice.toNumber();
+    const totalUp     = market.totalUp.toNumber();
+    const totalDown   = market.totalDown.toNumber();
+    const bets: BetRow[] = market.bets.map((b) => ({
+      id:        b.id,
+      userId:    b.userId,
+      direction: b.direction,
+      amount:    b.amount.toNumber(),
+    }));
 
-    const winningDirection = closePrice > market.startPrice ? "UP" : "DOWN";
-    const totalPool = market.totalUp + market.totalDown;
-    const winningPool = winningDirection === "UP" ? market.totalUp : market.totalDown;
-
+    const closePrice = await getBtcPrice();
+    const totalPool  = totalUp + totalDown;
     const now = new Date();
 
-    if (totalPool === 0 || winningPool === 0) {
-      // No bets or no winners — refund all
-      await prisma.$transaction([
-        prisma.market.update({
-          where: { id: marketId },
-          data: { closePrice, direction: winningDirection, status: "SETTLED", settledAt: now },
-        }),
-        ...(market.bets as BetWithUser[]).map((bet) =>
-          prisma.bet.update({
-            where: { id: bet.id },
-            data: { status: "REFUNDED", payout: bet.amount, settledAt: now },
-          })
-        ),
-        ...(market.bets as BetWithUser[]).map((bet) =>
-          prisma.user.update({
-            where: { id: bet.userId },
-            data: { appBalance: { increment: bet.amount } },
-          })
-        ),
-      ]);
-      return NextResponse.json({ settled: true, winningDirection, refunded: true });
+    // DRAW: price didn't move — refund everyone
+    const isDraw = closePrice === startPrice;
+    const winningDirection = isDraw ? "DRAW" : closePrice > startPrice ? "UP" : "DOWN";
+    const winningPool = isDraw ? 0 : winningDirection === "UP" ? totalUp : totalDown;
+
+    if (totalPool === 0) {
+      await prisma.market.update({
+        where: { id: marketId, status: { not: "SETTLED" } },
+        data: { closePrice, direction: winningDirection, status: "SETTLED", settledAt: now },
+      });
+      return NextResponse.json({ settled: true, winningDirection, bets: 0 });
     }
 
-    // Proportional payout: winner gets their share of the full pool
-    const winnerBets = (market.bets as BetWithUser[]).filter((b) => b.direction === winningDirection);
-    const loserBets = (market.bets as BetWithUser[]).filter((b) => b.direction !== winningDirection);
+    if (isDraw || winningPool === 0) {
+      await prisma.$transaction([
+        prisma.market.update({
+          where: { id: marketId, status: { not: "SETTLED" } },
+          data: { closePrice, direction: winningDirection, status: "SETTLED", settledAt: now },
+        }),
+        ...bets.map((bet) =>
+          prisma.bet.update({ where: { id: bet.id }, data: { status: "REFUNDED", payout: bet.amount, settledAt: now } })
+        ),
+        ...bets.map((bet) =>
+          prisma.user.update({ where: { id: bet.userId }, data: { appBalance: { increment: bet.amount } } })
+        ),
+      ]);
+      return NextResponse.json({ settled: true, winningDirection, refunded: bets.length });
+    }
+
+    const winnerBets = bets.filter((b) => b.direction === winningDirection);
+    const loserBets  = bets.filter((b) => b.direction !== winningDirection);
+
+    const totalPoolSats   = toSats(totalPool);
+    const winningPoolSats = toSats(winningPool);
 
     const payouts = winnerBets.map((bet) => {
-      const share = bet.amount / winningPool;
-      const payout = parseFloat((share * totalPool).toFixed(8));
-      return { bet, payout };
+      const betSats    = toSats(bet.amount);
+      const payoutSats = Math.floor((betSats * totalPoolSats) / winningPoolSats);
+      return { bet, payout: fromSats(payoutSats) };
     });
 
     await prisma.$transaction([
       prisma.market.update({
-        where: { id: marketId },
+        where: { id: marketId, status: { not: "SETTLED" } },
         data: { closePrice, direction: winningDirection, status: "SETTLED", settledAt: now },
       }),
-      ...payouts.map(({ bet, payout }: { bet: BetWithUser; payout: number }) =>
-        prisma.bet.update({
-          where: { id: bet.id },
-          data: { status: "WON", payout, settledAt: now },
-        })
+      ...payouts.map(({ bet, payout }) =>
+        prisma.bet.update({ where: { id: bet.id }, data: { status: "WON", payout, settledAt: now } })
       ),
-      ...payouts.map(({ bet, payout }: { bet: BetWithUser; payout: number }) =>
-        prisma.user.update({
-          where: { id: bet.userId },
-          data: { appBalance: { increment: payout } },
-        })
+      ...payouts.map(({ bet, payout }) =>
+        prisma.user.update({ where: { id: bet.userId }, data: { appBalance: { increment: payout } } })
       ),
-      ...loserBets.map((bet: BetWithUser) =>
-        prisma.bet.update({
-          where: { id: bet.id },
-          data: { status: "LOST", payout: 0, settledAt: now },
-        })
+      ...loserBets.map((bet) =>
+        prisma.bet.update({ where: { id: bet.id }, data: { status: "LOST", payout: 0, settledAt: now } })
       ),
     ]);
 
-    return NextResponse.json({ settled: true, winningDirection, closePrice });
+    return NextResponse.json({ settled: true, winningDirection, closePrice, winners: winnerBets.length, losers: loserBets.length });
   } catch (err) {
-    console.error(err);
+    console.error("[settle]", err);
     return NextResponse.json({ error: "Internal server error" }, { status: 500 });
   }
 }

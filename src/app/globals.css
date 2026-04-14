@@ -9,8 +9,8 @@
   --text: #ffffff;
   --text-muted: rgba(255, 255, 255, 0.45);
   --text-subtle: rgba(255, 255, 255, 0.22);
-  --orange: #f97316;
-  --orange-glow: rgba(249, 115, 22, 0.15);
+  --orange: #28cc95;
+  --orange-glow: rgba(40, 204, 149, 0.15);
   --green: #22c55e;
   --green-glow: rgba(34, 197, 94, 0.12);
   --red: #ef4444;
@@ -71,7 +71,7 @@ input[type="number"] { -moz-appearance: textfield; }
 }
 
 /* Glow utilities */
-.glow-orange { box-shadow: 0 0 40px rgba(249, 115, 22, 0.15), 0 0 80px rgba(249, 115, 22, 0.05); }
+.glow-orange { box-shadow: 0 0 40px rgba(40, 204, 149, 0.15), 0 0 80px rgba(40, 204, 149, 0.05); }
 .glow-green  { box-shadow: 0 0 30px rgba(34, 197, 94, 0.12); }
 .glow-red    { box-shadow: 0 0 30px rgba(239, 68, 68, 0.12); }
 
@@ -84,7 +84,7 @@ input[type="number"] { -moz-appearance: textfield; }
 }
 
 .gradient-text-orange {
-  background: linear-gradient(135deg, #fb923c 0%, #f97316 50%, #ea580c 100%);
+  background: linear-gradient(135deg, #5dd9ab 0%, #28cc95 50%, #1fa876 100%);
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
   background-clip: text;
@@ -106,7 +106,7 @@ input[type="number"] { -moz-appearance: textfield; }
   border: 1px solid transparent;
   background:
     linear-gradient(var(--surface), var(--surface)) padding-box,
-    conic-gradient(from var(--border-angle), #f97316 0%, transparent 30%, transparent 70%, #f97316 100%) border-box;
+    conic-gradient(from var(--border-angle), #28cc95 0%, transparent 30%, transparent 70%, #28cc95 100%) border-box;
   animation: border-spin 4s linear infinite;
 }
 
@@ -130,6 +130,16 @@ input[type="number"] { -moz-appearance: textfield; }
 
 /* Focus ring */
 *:focus-visible {
-  outline: 2px solid rgba(249, 115, 22, 0.6);
+  outline: 2px solid rgba(40, 204, 149, 0.6);
   outline-offset: 2px;
+}
+
+/* Kill all focus styling on inputs globally */
+input:focus,
+input:focus-visible,
+input:focus-within {
+  outline: none !important;
+  box-shadow: none !important;
+  border: none !important;
+  -webkit-appearance: none !important;
 }

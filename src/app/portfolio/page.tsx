@@ -11,26 +11,40 @@ import { useMarketStore, type Bet } from "@/store/market-store";
 import { format } from "date-fns";
 import clsx from "clsx";
 import DepositModal from "@/components/wallet/DepositModal";
-import WalletConnectModal from "@/components/wallet/WalletConnectModal";
+import { useLoopConnect } from "@/hooks/useLoopConnect";
 
 export default function PortfolioPage() {
   const { connected, partyId, appBalance } = useWalletStore();
   const { myBets, setMyBets } = useMarketStore();
   const [loading, setLoading] = useState(false);
   const [depositOpen, setDepositOpen] = useState(false);
-  const [connectOpen, setConnectOpen] = useState(false);
+  const { connect: connectLoop, connecting: connectingLoop } = useLoopConnect();
 
   const fetchBets = useCallback(async () => {
-    if (!partyId) return;
+    const { sessionToken } = useWalletStore.getState();
+    if (!sessionToken) return;
     setLoading(true);
     try {
-      const res = await fetch(`/api/bets?partyId=${partyId}`);
+      const res = await fetch("/api/bets", {
+        headers: { "Authorization": `Bearer ${sessionToken}` },
+        cache: "no-store",
+      });
       const data = await res.json();
       setMyBets(Array.isArray(data) ? data : []);
     } catch { /* silent */ } finally { setLoading(false); }
-  }, [partyId, setMyBets]);
+  }, [setMyBets]);
 
-  useEffect(() => { fetchBets(); }, [fetchBets]);
+  useEffect(() => {
+    fetchBets();
+    // Also refresh balance from server
+    const { sessionToken } = useWalletStore.getState();
+    if (sessionToken) {
+      fetch("/api/users", { headers: { "Authorization": `Bearer ${sessionToken}` }, cache: "no-store" })
+        .then((r) => r.ok ? r.json() : null)
+        .then((d) => { if (d && typeof d.appBalance === "number") useWalletStore.getState().setAppBalance(d.appBalance); })
+        .catch(() => {});
+    }
+  }, [fetchBets]);
 
   const won = myBets.filter((b: Bet) => b.status === "WON");
   const lost = myBets.filter((b: Bet) => b.status === "LOST");
@@ -54,15 +68,15 @@ export default function PortfolioPage() {
           <h2 className="text-3xl font-extrabold text-white mb-2" style={{ fontFamily: "var(--font-syne)" }}>Your Portfolio</h2>
           <p className="text-white/35 text-sm max-w-xs mx-auto mb-8">Connect your wallet to see your bets, P&amp;L, and app balance.</p>
           <button
-            onClick={() => setConnectOpen(true)}
-            className="inline-flex items-center gap-2 px-6 py-3 rounded-2xl font-bold text-white text-sm transition-all"
-            style={{ background: "linear-gradient(135deg, #f97316, #ea580c)", fontFamily: "var(--font-syne)" }}
+            onClick={connectLoop}
+            disabled={connectingLoop}
+            className="inline-flex items-center gap-2 px-6 py-3 rounded-2xl font-bold text-black text-sm transition-all disabled:opacity-60"
+            style={{ background: "linear-gradient(135deg, #28cc95, #1fa876)", fontFamily: "var(--font-syne)" }}
           >
-            <Wallet className="w-4 h-4" />
-            Connect Wallet
+            <Wallet className="w-4 h-4 text-black" />
+            {connectingLoop ? "Connecting…" : "Connect Wallet"}
           </button>
         </motion.div>
-        <WalletConnectModal open={connectOpen} onClose={() => setConnectOpen(false)} />
       </div>
     );
   }
@@ -78,7 +92,7 @@ export default function PortfolioPage() {
         {/* Header */}
         <motion.div initial={{ opacity: 0, y: -12 }} animate={{ opacity: 1, y: 0 }} className="mb-8">
           <h1 className="text-4xl font-extrabold text-white" style={{ fontFamily: "var(--font-syne)" }}>Portfolio</h1>
-          <p className="text-white/35 mt-1.5 text-sm">Your cBTC app balance, bets &amp; P&amp;L</p>
+          <p className="text-white/35 mt-1.5 text-sm">Your CBTC app balance, bets &amp; P&amp;L</p>
         </motion.div>
 
         {/* Balance hero */}
@@ -88,12 +102,12 @@ export default function PortfolioPage() {
           transition={{ delay: 0.05 }}
           className="relative overflow-hidden rounded-3xl p-6 mb-6"
           style={{
-            background: "linear-gradient(135deg, rgba(249,115,22,0.12) 0%, rgba(249,115,22,0.04) 50%, rgba(14,14,26,0.8) 100%)",
-            border: "1px solid rgba(249,115,22,0.2)",
+            background: "linear-gradient(135deg, rgba(40,204,149,0.12) 0%, rgba(40,204,149,0.04) 50%, rgba(14,14,26,0.8) 100%)",
+            border: "1px solid rgba(40,204,149,0.2)",
           }}
         >
           {/* Glow */}
-          <div className="absolute top-0 right-0 w-64 h-64 rounded-full pointer-events-none" style={{ background: "radial-gradient(circle, rgba(249,115,22,0.08) 0%, transparent 70%)", transform: "translate(20%, -40%)" }} />
+          <div className="absolute top-0 right-0 w-64 h-64 rounded-full pointer-events-none" style={{ background: "radial-gradient(circle, rgba(40,204,149,0.08) 0%, transparent 70%)", transform: "translate(20%, -40%)" }} />
 
           <div className="relative">
             <p className="text-white/35 text-xs uppercase tracking-widest font-medium mb-2" style={{ fontFamily: "var(--font-space-mono)" }}>App Wallet Balance</p>
@@ -101,16 +115,16 @@ export default function PortfolioPage() {
               <span className="text-5xl font-extrabold text-white" style={{ fontFamily: "var(--font-space-mono)" }}>
                 {appBalance.toFixed(5)}
               </span>
-              <span className="text-orange-400 font-bold text-xl">cBTC</span>
+              <span className="text-[#28cc95] font-bold text-xl">CBTC</span>
             </div>
-            <p className="text-white/20 text-xs mb-5">Funds are held in the BetCC app wallet, not your connected wallet</p>
+            <p className="text-white/20 text-xs mb-5">Funds are held in the Punt app wallet, not your connected wallet</p>
             <button
               onClick={() => setDepositOpen(true)}
-              className="inline-flex items-center gap-2 px-5 py-2.5 rounded-2xl font-bold text-white text-sm transition-all"
-              style={{ background: "linear-gradient(135deg, #f97316, #ea580c)", fontFamily: "var(--font-syne)" }}
+              className="inline-flex items-center gap-2 px-5 py-2.5 rounded-2xl font-bold text-black text-sm transition-all"
+              style={{ background: "linear-gradient(135deg, #28cc95, #1fa876)", fontFamily: "var(--font-syne)" }}
             >
-              <ArrowDownToLine className="w-4 h-4" />
-              Deposit cBTC
+              <ArrowDownToLine className="w-4 h-4 text-black" />
+              Deposit CBTC
             </button>
           </div>
         </motion.div>
@@ -118,16 +132,16 @@ export default function PortfolioPage() {
         {/* Stats */}
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-8">
           {[
-            { label: "Wagered", value: `${totalWagered.toFixed(4)}`, unit: "cBTC", icon: <Bitcoin className="w-4 h-4 text-white/30" />, color: "text-white" },
+            { label: "Wagered", value: `${totalWagered.toFixed(6)}`, unit: "CBTC", icon: <Bitcoin className="w-4 h-4 text-white/30" />, color: "text-white" },
             { label: "Win Rate", value: `${winRate.toFixed(0)}%`, unit: "", icon: <BarChart3 className="w-4 h-4 text-violet-400" />, color: "text-violet-300" },
             {
               label: "Net P&L",
-              value: `${netPnl >= 0 ? "+" : ""}${netPnl.toFixed(4)}`,
-              unit: "cBTC",
+              value: `${netPnl >= 0 ? "+" : ""}${netPnl.toFixed(6)}`,
+              unit: "CBTC",
               icon: netPnl >= 0 ? <TrendingUp className="w-4 h-4 text-green-400" /> : <TrendingDown className="w-4 h-4 text-red-400" />,
               color: netPnl >= 0 ? "text-green-300" : "text-red-300",
             },
-            { label: "Active", value: pending.length.toString(), unit: "bets", icon: <Clock className="w-4 h-4 text-orange-400" />, color: "text-orange-300" },
+            { label: "Active", value: pending.length.toString(), unit: "bets", icon: <Clock className="w-4 h-4 text-[#28cc95]" />, color: "text-[#5dd9ab]" },
           ].map(({ label, value, unit, icon, color }, i) => (
             <motion.div
               key={label}
@@ -189,7 +203,7 @@ export default function PortfolioPage() {
                         {isWon ? <CheckCircle className="w-5 h-5 text-green-400" />
                           : isLost ? <XCircle className="w-5 h-5 text-red-400" />
                           : isRefund ? <RotateCcw className="w-5 h-5 text-blue-400" />
-                          : <Clock className="w-5 h-5 text-orange-400" />}
+                          : <Clock className="w-5 h-5 text-[#28cc95]" />}
                       </div>
                       <div className="min-w-0">
                         <p className="text-white/75 text-sm font-medium truncate" style={{ fontFamily: "var(--font-syne)" }}>
@@ -210,16 +224,16 @@ export default function PortfolioPage() {
 
                     <div className="text-right shrink-0 ml-3">
                       <div className="flex items-center gap-1 justify-end">
-                        <Bitcoin className="w-3 h-3 text-orange-400/60" />
-                        <span className="text-white font-bold text-sm" style={{ fontFamily: "var(--font-space-mono)" }}>{bet.amount.toFixed(4)}</span>
+                        <Bitcoin className="w-3 h-3 text-[#28cc95]/60" />
+                        <span className="text-white font-bold text-sm" style={{ fontFamily: "var(--font-space-mono)" }}>{bet.amount.toFixed(6)}</span>
                       </div>
                       {isWon && bet.payout != null && (
                         <p className="text-green-400 text-xs font-bold mt-0.5" style={{ fontFamily: "var(--font-space-mono)" }}>
-                          +{(bet.payout - bet.amount).toFixed(4)}
+                          +{(bet.payout - bet.amount).toFixed(6)}
                         </p>
                       )}
                       {isLost && <p className="text-red-400/50 text-xs mt-0.5">lost</p>}
-                      {bet.status === "PENDING" && <p className="text-orange-400/50 text-xs mt-0.5">pending</p>}
+                      {bet.status === "PENDING" && <p className="text-[#28cc95]/50 text-xs mt-0.5">pending</p>}
                       {isRefund && <p className="text-blue-400/50 text-xs mt-0.5">refunded</p>}
                     </div>
                   </motion.div>

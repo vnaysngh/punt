@@ -10,10 +10,14 @@ export default function MarketTimer({ closeAt, onExpire, size = "md" }: Props) {
   const [secondsLeft, setSecondsLeft] = useState(0);
 
   useEffect(() => {
+    let fired = false;
     const update = () => {
       const diff = Math.max(0, differenceInSeconds(new Date(closeAt), new Date()));
       setSecondsLeft(diff);
-      if (diff === 0) onExpire?.();
+      if (diff === 0 && !fired) {
+        fired = true;
+        onExpire?.();
+      }
     };
     update();
     const id = setInterval(update, 1000);
@@ -36,7 +40,7 @@ export default function MarketTimer({ closeAt, onExpire, size = "md" }: Props) {
   const color =
     urgency === "critical" ? "#ef4444" :
     urgency === "warning"  ? "#f59e0b" :
-    "#f97316";
+    "#28cc95";
 
   return (
     <div className={clsx("flex items-center gap-2", size === "sm" && "gap-1.5")}>

@@ -1,28 +1,47 @@
-// Fetches live BTC/USD price
-// Primary: Binance (no key, fastest, most accurate)
+// Fetches live BTC/USD price.
+// Primary:  Binance (no key, lowest latency)
 // Fallback: CoinGecko (no key)
+// Both calls have a 5-second timeout — if both fail, throws so callers can
+// decide whether to abort settlement (safer than using a stale cached price).
+
+const TIMEOUT_MS = 5_000;
+
+function fetchWithTimeout(url: string): Promise<Response> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
+  return fetch(url, { signal: controller.signal, cache: "no-store" }).finally(() =>
+    clearTimeout(timer)
+  );
+}
 
 export async function getBtcPrice(): Promise<number> {
-  // Try Binance first
+  // --- Binance ---
   try {
-    const res = await fetch("https://api.binance.com/api/v3/ticker/price?symbol=BTCUSDT", {
-      next: { revalidate: 0 }, // always fresh
-    });
+    const res = await fetchWithTimeout(
+      "https://api.binance.com/api/v3/ticker/price?symbol=BTCUSDT"
+    );
     if (res.ok) {
       const data = await res.json();
       const price = parseFloat(data.price);
-      if (price > 0) return price;
+      if (price > 1_000 && price < 10_000_000) return price; // sanity bounds
     }
   } catch {
-    // fall through to CoinGecko
+    // timeout or network error — fall through to CoinGecko
   }
 
-  // Fallback: CoinGecko
-  const res = await fetch(
-    "https://api.coingecko.com/api/v3/simple/price?ids=bitcoin&vs_currencies=usd",
-    { next: { revalidate: 0 } }
-  );
-  if (!res.ok) throw new Error("Failed to fetch BTC price from all sources");
-  const data = await res.json();
-  return data.bitcoin.usd as number;
+  // --- CoinGecko fallback ---
+  try {
+    const res = await fetchWithTimeout(
+      "https://api.coingecko.com/api/v3/simple/price?ids=bitcoin&vs_currencies=usd"
+    );
+    if (res.ok) {
+      const data = await res.json();
+      const price = data?.bitcoin?.usd as number | undefined;
+      if (typeof price === "number" && price > 1_000 && price < 10_000_000) return price;
+    }
+  } catch {
+    // fall through to error
+  }
+
+  throw new Error("BTC price unavailable from all sources — aborting to prevent incorrect settlement");
 }

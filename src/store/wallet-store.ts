@@ -1,6 +1,5 @@
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
-import type { LoopProvider } from "@/lib/loop";
 
 export type WalletType = "loop" | "console" | null;
 
@@ -10,16 +9,15 @@ export type WalletState = {
   partyId: string | null;
   email: string | null;
   publicKey: string | null;
-  appBalance: number; // cBTC in app wallet
-  loopProvider: LoopProvider | null;
+  appBalance: number;
+  sessionToken: string | null;
 
-  // actions
   setConnected: (params: {
     walletType: WalletType;
     partyId: string;
-    email?: string;
-    publicKey?: string;
-    loopProvider?: LoopProvider;
+    email?: string | null;
+    publicKey?: string | null;
+    sessionToken?: string;
   }) => void;
   setAppBalance: (balance: number) => void;
   disconnect: () => void;
@@ -34,16 +32,16 @@ export const useWalletStore = create<WalletState>()(
       email: null,
       publicKey: null,
       appBalance: 0,
-      loopProvider: null,
+      sessionToken: null,
 
-      setConnected: ({ walletType, partyId, email, publicKey, loopProvider }) =>
+      setConnected: ({ walletType, partyId, email, publicKey, sessionToken }) =>
         set({
           connected: true,
           walletType,
           partyId,
-          email: email ?? null,
-          publicKey: publicKey ?? null,
-          loopProvider: loopProvider ?? null,
+          email:        email     ?? null,
+          publicKey:    publicKey ?? null,
+          sessionToken: sessionToken ?? null,
         }),
 
       setAppBalance: (balance) => set({ appBalance: balance }),
@@ -56,17 +54,18 @@ export const useWalletStore = create<WalletState>()(
           email: null,
           publicKey: null,
           appBalance: 0,
-          loopProvider: null,
+          sessionToken: null,
         }),
     }),
     {
       name: "betcc-wallet",
       partialize: (state) => ({
-        connected: state.connected,
-        walletType: state.walletType,
-        partyId: state.partyId,
-        email: state.email,
-        publicKey: state.publicKey,
+        connected:    state.connected,
+        walletType:   state.walletType,
+        partyId:      state.partyId,
+        email:        state.email,
+        publicKey:    state.publicKey,
+        sessionToken: state.sessionToken,
       }),
     }
   )

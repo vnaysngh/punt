@@ -26,7 +26,7 @@ const spaceMono = Space_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "BetCC — Canton Network Prediction Markets",
+  title: "Punt — Canton Network Prediction Markets",
   description: "15-minute cBTC prediction markets on Canton Network",
 };
 

@@ -35,7 +35,7 @@ export default function BetModal({ market, open, onClose, onBetPlaced }: Props) 
   const [amount, setAmount] = useState("");
   const [step, setStep] = useState<BetStep>("input");
   const [error, setError] = useState<string | null>(null);
-  const { partyId, appBalance, connected } = useWalletStore();
+  const { appBalance, connected, sessionToken } = useWalletStore();
 
   const reset = () => { setDirection(null); setAmount(""); setStep("input"); setError(null); };
   const handleClose = () => { reset(); onClose(); };
@@ -52,14 +52,18 @@ export default function BetModal({ market, open, onClose, onBetPlaced }: Props) 
   const profit = potentialPayout - parsed;
 
   const handleBet = async () => {
-    if (!isValid || !partyId) return;
+    if (!isValid || !sessionToken) return;
     setStep("submitting");
     setError(null);
     try {
       const res = await fetch(`/api/markets/${market.id}/bet`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ partyId, direction, amount: parsed }),
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${sessionToken}`,
+        },
+        // Never send partyId in body — server reads it from the JWT
+        body: JSON.stringify({ direction, amount: parsed }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error ?? "Bet failed");
@@ -85,7 +89,7 @@ export default function BetModal({ market, open, onClose, onBetPlaced }: Props) 
             className="relative w-full max-w-[420px] rounded-3xl overflow-hidden shadow-2xl shadow-black/60"
             style={{ background: "linear-gradient(160deg, #111120 0%, #0d0d1a 100%)", border: "1px solid rgba(255,255,255,0.08)" }}
           >
-            <div className="h-px bg-gradient-to-r from-transparent via-orange-500/40 to-transparent" />
+            <div className="h-px bg-gradient-to-r from-transparent via-[#28cc95]/40 to-transparent" />
 
             {/* Header */}
             <div className="flex items-start justify-between px-6 pt-5 pb-4">
@@ -152,7 +156,7 @@ export default function BetModal({ market, open, onClose, onBetPlaced }: Props) 
                       <div className="flex justify-between items-center mb-2">
                         <p className="text-white/30 text-[11px] uppercase tracking-widest font-medium">Amount</p>
                         <p className="text-white/25 text-xs" style={{ fontFamily: "var(--font-space-mono)" }}>
-                          Bal: {appBalance.toFixed(5)} cBTC
+                          Bal: {appBalance.toFixed(5)} CBTC
                         </p>
                       </div>
                       <div className="relative rounded-2xl overflow-hidden" style={{ background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.07)" }}>
@@ -168,8 +172,8 @@ export default function BetModal({ market, open, onClose, onBetPlaced }: Props) 
                           style={{ fontFamily: "var(--font-space-mono)" }}
                         />
                         <div className="flex items-center gap-1.5 px-4 pb-3">
-                          <Bitcoin className="w-3.5 h-3.5 text-orange-400" />
-                          <span className="text-orange-400/80 text-xs font-semibold">cBTC</span>
+                          <Bitcoin className="w-3.5 h-3.5 text-[#28cc95]" />
+                          <span className="text-[#28cc95]/80 text-xs font-semibold">CBTC</span>
                         </div>
                       </div>
                       <div className="grid grid-cols-4 gap-1.5 mt-2">
@@ -197,7 +201,7 @@ export default function BetModal({ market, open, onClose, onBetPlaced }: Props) 
                         <p className="text-white/25 text-[10px] uppercase tracking-widest font-medium">Estimated Return</p>
                         <div className="flex justify-between">
                           <span className="text-white/40 text-sm">Payout</span>
-                          <span className="text-white text-sm font-semibold" style={{ fontFamily: "var(--font-space-mono)" }}>{potentialPayout.toFixed(5)} cBTC</span>
+                          <span className="text-white text-sm font-semibold" style={{ fontFamily: "var(--font-space-mono)" }}>{potentialPayout.toFixed(6)} CBTC</span>
                         </div>
                         <div className="flex justify-between">
                           <span className="text-white/40 text-sm">Profit</span>
@@ -205,7 +209,7 @@ export default function BetModal({ market, open, onClose, onBetPlaced }: Props) 
                             className={clsx("text-sm font-bold", profit >= 0 ? "text-green-400" : "text-red-400")}
                             style={{ fontFamily: "var(--font-space-mono)" }}
                           >
-                            {profit >= 0 ? "+" : ""}{profit.toFixed(5)}
+                            {profit >= 0 ? "+" : ""}{profit.toFixed(6)}
                           </span>
                         </div>
                         <p className="text-white/15 text-[10px]">* Estimate based on current pool. Final payout may vary.</p>
@@ -214,7 +218,7 @@ export default function BetModal({ market, open, onClose, onBetPlaced }: Props) 
 
                     <button
                       onClick={handleBet}
-                      disabled={!isValid || !connected}
+                      disabled={!isValid || !connected || !sessionToken}
                       className="w-full py-3.5 rounded-2xl font-bold text-white text-sm disabled:opacity-30 disabled:cursor-not-allowed transition-all flex items-center justify-center gap-2"
                       style={{
                         background: !isValid || !connected
@@ -223,12 +227,12 @@ export default function BetModal({ market, open, onClose, onBetPlaced }: Props) 
                           ? "linear-gradient(135deg, #16a34a, #22c55e)"
                           : downSelected
                           ? "linear-gradient(135deg, #dc2626, #ef4444)"
-                          : "linear-gradient(135deg, #f97316, #ea580c)",
+                          : "linear-gradient(135deg, #28cc95, #1fa876)",
                         fontFamily: "var(--font-syne)",
                       }}
                     >
                       {upSelected ? <TrendingUp className="w-4 h-4" /> : downSelected ? <TrendingDown className="w-4 h-4" /> : null}
-                      {!connected ? "Connect Wallet First" : !direction ? "Select UP or DOWN" : !isValid ? "Enter Amount" : `Bet ${direction} — ${parsed.toFixed(4)} cBTC`}
+                      {!connected ? "Connect Wallet First" : !direction ? "Select UP or DOWN" : !isValid ? "Enter Amount" : `Bet ${direction} — ${parsed.toFixed(6)} CBTC`}
                     </button>
                   </motion.div>
                 )}
@@ -236,9 +240,9 @@ export default function BetModal({ market, open, onClose, onBetPlaced }: Props) 
                 {step === "submitting" && (
                   <motion.div key="submitting" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="flex flex-col items-center gap-5 py-10">
                     <div className="relative">
-                      <div className="w-20 h-20 rounded-3xl" style={{ background: "rgba(249,115,22,0.06)", border: "1px solid rgba(249,115,22,0.15)" }} />
+                      <div className="w-20 h-20 rounded-3xl" style={{ background: "rgba(40,204,149,0.06)", border: "1px solid rgba(40,204,149,0.15)" }} />
                       <div className="absolute inset-0 flex items-center justify-center">
-                        <Loader2 className="w-8 h-8 text-orange-400 animate-spin" />
+                        <Loader2 className="w-8 h-8 text-[#28cc95] animate-spin" />
                       </div>
                     </div>
                     <div className="text-center">
@@ -261,9 +265,9 @@ export default function BetModal({ market, open, onClose, onBetPlaced }: Props) 
                     </motion.div>
                     <div className="text-center">
                       <p className="text-white font-bold text-xl" style={{ fontFamily: "var(--font-syne)" }}>Bet Placed!</p>
-                      <p className="text-white/40 text-sm mt-1">{parsed.toFixed(4)} cBTC on {direction}</p>
+                      <p className="text-white/40 text-sm mt-1">{parsed.toFixed(6)} CBTC on {direction}</p>
                     </div>
-                    <button onClick={handleClose} className="px-8 py-2.5 rounded-xl font-semibold text-white text-sm" style={{ background: "linear-gradient(135deg, #f97316, #ea580c)", fontFamily: "var(--font-syne)" }}>
+                    <button onClick={handleClose} className="px-8 py-2.5 rounded-xl font-semibold text-black text-sm" style={{ background: "linear-gradient(135deg, #28cc95, #1fa876)", fontFamily: "var(--font-syne)" }}>
                       Done
                     </button>
                   </motion.div>

@@ -22,7 +22,7 @@ export async function connectConsoleWallet(): Promise<{ partyId: string } | null
   const sdk = await getSdk();
 
   // connect() sends a postMessage to the extension which opens the popup
-  const result = await sdk.connect({ name: "BetCC", icon: "" });
+  const result = await sdk.connect({ name: "Punt", icon: "" });
   if (!result?.isConnected) return null;
 
   const accounts = await sdk.getAccounts();
@@ -46,15 +46,34 @@ export async function submitConsoleTransfer(params: {
   amount: number;
   expireDate: string;
   memo?: string;
-}): Promise<string | null> {
+}): Promise<string> {
   const sdk = await getSdk();
-  const result = await sdk.submitCommands({
+
+  console.log("[ConsoleWallet] submitting transfer:", {
     from: params.from,
     to: params.to,
     token: params.token,
     amount: params.amount.toString(),
     expireDate: params.expireDate,
+  });
+
+  const result = await sdk.submitCommands({
+    from: params.from,
+    to: params.to,
+    token: "CBTC",
+    amount: params.amount.toString(),
+    expireDate: params.expireDate,
     memo: params.memo,
   });
-  return result?.status ? "submitted" : null;
+
+  console.log("[ConsoleWallet] submitCommands result:", JSON.stringify(result, null, 2));
+
+  if (result === undefined || result === null) {
+    throw new Error("No response from Console Wallet — user may have rejected");
+  }
+  if (result.status === false) {
+    throw new Error("Transfer failed in Console Wallet");
+  }
+
+  return result.signature ?? "submitted";
 }
