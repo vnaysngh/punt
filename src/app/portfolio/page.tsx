@@ -4,13 +4,14 @@ import { useEffect, useState, useCallback } from "react";
 import { motion } from "framer-motion";
 import {
   Bitcoin, TrendingUp, TrendingDown, CheckCircle, XCircle,
-  Clock, RotateCcw, ArrowDownToLine, Wallet, BarChart3,
+  Clock, RotateCcw, ArrowDownToLine, ArrowUpFromLine, Wallet, BarChart3,
 } from "lucide-react";
 import { useWalletStore } from "@/store/wallet-store";
 import { useMarketStore, type Bet } from "@/store/market-store";
 import { format } from "date-fns";
 import clsx from "clsx";
 import DepositModal from "@/components/wallet/DepositModal";
+import WithdrawModal from "@/components/wallet/WithdrawModal";
 import { useLoopConnect } from "@/hooks/useLoopConnect";
 
 export default function PortfolioPage() {
@@ -18,6 +19,7 @@ export default function PortfolioPage() {
   const { myBets, setMyBets } = useMarketStore();
   const [loading, setLoading] = useState(false);
   const [depositOpen, setDepositOpen] = useState(false);
+  const [withdrawOpen, setWithdrawOpen] = useState(false);
   const { connect: connectLoop, connecting: connectingLoop } = useLoopConnect();
 
   const fetchBets = useCallback(async () => {
@@ -118,14 +120,25 @@ export default function PortfolioPage() {
               <span className="text-[#28cc95] font-bold text-xl">CBTC</span>
             </div>
             <p className="text-white/20 text-xs mb-5">Funds are held in the Punt app wallet, not your connected wallet</p>
-            <button
-              onClick={() => setDepositOpen(true)}
-              className="inline-flex items-center gap-2 px-5 py-2.5 rounded-2xl font-bold text-black text-sm transition-all"
-              style={{ background: "linear-gradient(135deg, #28cc95, #1fa876)", fontFamily: "var(--font-syne)" }}
-            >
-              <ArrowDownToLine className="w-4 h-4 text-black" />
-              Deposit CBTC
-            </button>
+            <div className="flex items-center gap-3">
+              <button
+                onClick={() => setDepositOpen(true)}
+                className="inline-flex items-center gap-2 px-5 py-2.5 rounded-2xl font-bold text-black text-sm transition-all hover:opacity-90 active:scale-[0.98]"
+                style={{ background: "linear-gradient(135deg, #28cc95, #1fa876)", fontFamily: "var(--font-syne)" }}
+              >
+                <ArrowDownToLine className="w-4 h-4 text-black" />
+                Deposit
+              </button>
+              <button
+                onClick={() => setWithdrawOpen(true)}
+                disabled={appBalance === 0}
+                className="inline-flex items-center gap-2 px-5 py-2.5 rounded-2xl font-semibold text-white/50 text-sm transition-all hover:text-white/80 active:scale-[0.98] disabled:opacity-30 disabled:cursor-not-allowed"
+                style={{ background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.08)", fontFamily: "var(--font-syne)" }}
+              >
+                <ArrowUpFromLine className="w-4 h-4" />
+                Withdraw
+              </button>
+            </div>
           </div>
         </motion.div>
 
@@ -245,6 +258,7 @@ export default function PortfolioPage() {
       </div>
 
       <DepositModal open={depositOpen} onClose={() => setDepositOpen(false)} />
+      <WithdrawModal open={withdrawOpen} onClose={() => setWithdrawOpen(false)} />
     </div>
   );
 }

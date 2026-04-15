@@ -34,7 +34,7 @@ async function fetchCandles(openAt: string, closeAt: string): Promise<Candle[]> 
 
   // Use server-side proxy — avoids CSP blocking direct Binance calls from browser
   const res = await fetch(
-    `/api/price/candles?startTime=${startMs}&endTime=${endMs}&limit=20`,
+    `/api/price/candles?startTime=${startMs}&endTime=${endMs}&limit=16`,
     { cache: "no-store" }
   );
   if (!res.ok) return [];
@@ -80,9 +80,12 @@ export default function PriceChart({ openAt, closeAt, startPrice }: Props) {
 
     seriesRef.current.setData(merged);
 
+    // Always show the full 15-min window regardless of how many candles are loaded.
+    // This prevents a single candle at round start from ballooning to fill the chart.
+    // We pad `to` by 60s so the last candle isn't flush against the right edge.
     chartRef.current.timeScale().setVisibleRange({
-      from: openSec  as Time,
-      to:   closeSec as Time,
+      from: openSec           as Time,
+      to:   (closeSec + 60)   as Time,
     });
   }, [openAt, closeAt, openSec, closeSec, startPrice]);
 
@@ -129,6 +132,8 @@ export default function PriceChart({ openAt, closeAt, startPrice }: Props) {
         fixLeftEdge: true,
         fixRightEdge: true,
         lockVisibleTimeRangeOnResize: true,
+        barSpacing: 40, // fixed px per candle — prevents giant single-candle on round start
+        minBarSpacing: 4,
       },
       handleScroll: false,
       handleScale: false,

@@ -45,8 +45,10 @@ const RATE_RULES: RateRule[] = [
   { prefix: "/api/auth/session",          limit: 10,  windowMs: 60_000 },
   // Deposits: 5 per minute per IP (one real deposit flow takes ~15s)
   { prefix: "/api/deposit",               limit: 5,   windowMs: 60_000 },
-  // Price: generous but capped — prevents hammering Binance upstream
-  { prefix: "/api/price",                 limit: 30,  windowMs: 60_000 },
+  // Withdrawals: 3 per minute per IP — on-chain calls are slow and expensive
+  { prefix: "/api/withdraw",              limit: 3,   windowMs: 60_000 },
+  // Price: 1s polling = 60 req/min per tab, allow 2 tabs + buffer
+  { prefix: "/api/price",                 limit: 150, windowMs: 60_000 },
   // Bet placement: 10 per minute per IP — a legit user places 1 per round
   // More specific prefix must come before /api/markets to match first
   { prefix: "/api/markets/",              limit: 10,  windowMs: 60_000 },

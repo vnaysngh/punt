@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useCallback, useRef } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { TrendingUp, TrendingDown, Bitcoin, Lock, Loader2, CheckCircle2, AlertCircle, ChevronDown, ChevronUp, Users } from "lucide-react";
+import { TrendingUp, TrendingDown, Bitcoin, Lock, Loader2, CheckCircle2, AlertCircle, ChevronDown, ChevronUp, Users, RefreshCw } from "lucide-react";
 
 import MarketTimer from "@/components/market/MarketTimer";
 import PriceChart from "@/components/market/PriceChart";
@@ -129,7 +129,7 @@ export default function MarketsPage() {
     // Only fetch user bets if already connected — avoids 401 spam on mount
     if (useWalletStore.getState().sessionToken) fetchBets();
     const marketsId = setInterval(fetchMarkets, 30_000);
-    const priceId = setInterval(fetchPrice, 15_000);
+    const priceId = setInterval(fetchPrice, 1_000);
     const betsId = setInterval(fetchBets, 30_000);
     return () => { clearInterval(marketsId); clearInterval(priceId); clearInterval(betsId); };
   }, [fetchMarkets, fetchPrice, fetchBets]);
@@ -274,7 +274,7 @@ export default function MarketsPage() {
                 {priceDir === "up" ? "▲" : "▼"}
               </motion.span>
             )}
-            <span className="text-white/20 text-[10px]" style={{ fontFamily: "var(--font-space-mono)" }}>· 15s</span>
+            <span className="text-white/20 text-[10px]" style={{ fontFamily: "var(--font-space-mono)" }}>· 1s</span>
           </div>
         </motion.div>
 
@@ -286,11 +286,11 @@ export default function MarketsPage() {
           </div>
         ) : !liveMarket ? (
           <div className="flex flex-col items-center justify-center py-40 text-center">
-            <div className="w-20 h-20 rounded-3xl flex items-center justify-center mb-5" style={{ background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.06)" }}>
-              <Bitcoin className="w-9 h-9 text-white/15" />
+            <div className="w-20 h-20 rounded-3xl flex items-center justify-center mb-5" style={{ background: "rgba(251,191,36,0.06)", border: "1px solid rgba(251,191,36,0.12)" }}>
+              <RefreshCw className="w-9 h-9 text-amber-400/50 animate-spin" style={{ animationDuration: "2s" }} />
             </div>
-            <p className="text-white/40 font-semibold" style={{ fontFamily: "var(--font-syne)" }}>No active round</p>
-            <p className="text-white/20 text-sm mt-1.5">The market will auto-start shortly</p>
+            <p className="text-white/50 font-semibold" style={{ fontFamily: "var(--font-syne)" }}>Settling round…</p>
+            <p className="text-white/20 text-sm mt-1.5">Calculating results · next round starts shortly</p>
           </div>
         ) : (
           <motion.div
@@ -307,8 +307,8 @@ export default function MarketsPage() {
                       <span className="w-1.5 h-1.5 rounded-full bg-[#28cc95] pulse-dot" /> LIVE
                     </span>
                   ) : (
-                    <span className="text-[11px] font-bold px-2.5 py-1 rounded-lg text-white/30" style={{ background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.06)" }}>
-                      CLOSING
+                    <span className="flex items-center gap-1.5 text-[11px] font-bold px-2.5 py-1 rounded-lg" style={{ background: "rgba(251,191,36,0.08)", color: "#fbbf24", border: "1px solid rgba(251,191,36,0.2)" }}>
+                      <RefreshCw className="w-2.5 h-2.5 animate-spin" /> SETTLING
                     </span>
                   )}
                   <span className="text-white/25 text-[11px]" style={{ fontFamily: "var(--font-space-mono)" }}>Round #{totalRoundCount}</span>
@@ -374,11 +374,16 @@ export default function MarketsPage() {
                 <div className="p-5 flex flex-col flex-1">
                   <div className="flex items-center justify-between mb-4">
                     <p className="text-white/40 text-[11px] uppercase tracking-widest font-semibold" style={{ fontFamily: "var(--font-space-mono)" }}>
-                      Place Bet
+                      {!isOpen ? "Round Result" : "Place Bet"}
                     </p>
                     {bettingLocked && isOpen && (
                       <span className="flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-lg" style={{ background: "rgba(251,191,36,0.1)", color: "#fbbf24", border: "1px solid rgba(251,191,36,0.2)" }}>
                         <Lock className="w-2.5 h-2.5" /> LOCKED
+                      </span>
+                    )}
+                    {!isOpen && (
+                      <span className="flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-lg" style={{ background: "rgba(251,191,36,0.08)", color: "#fbbf24", border: "1px solid rgba(251,191,36,0.15)" }}>
+                        <RefreshCw className="w-2.5 h-2.5 animate-spin" /> SETTLING
                       </span>
                     )}
                   </div>
@@ -509,8 +514,10 @@ export default function MarketsPage() {
                               <Lock className="w-3.5 h-3.5" /> Betting locked · waiting for close
                             </div>
                           ) : !isOpen ? (
-                            <div className="w-full py-3 rounded-xl text-center text-white/25 text-sm" style={{ background: "rgba(255,255,255,0.02)", border: "1px solid rgba(255,255,255,0.05)" }}>
-                              Market closed
+                            <div className="w-full py-4 rounded-xl flex flex-col items-center justify-center gap-2.5" style={{ background: "rgba(251,191,36,0.04)", border: "1px solid rgba(251,191,36,0.12)" }}>
+                              <RefreshCw className="w-5 h-5 text-amber-400/60 animate-spin" />
+                              <p className="text-amber-400/70 text-sm font-semibold" style={{ fontFamily: "var(--font-syne)" }}>Settling round…</p>
+                              <p className="text-white/20 text-xs">Next round starts shortly</p>
                             </div>
                           ) : (
                             <button

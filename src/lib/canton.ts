@@ -110,6 +110,71 @@ export async function getPendingTransferInstructions(): Promise<PendingTransferI
 }
 
 /**
+ * Send CBTC from the app wallet to a user's partyId.
+ * Used for withdrawals — the inverse of acceptTransferInstruction.
+ * Returns the update_id of the settled transaction.
+ */
+export async function sendTransfer(
+  recipientPartyId: string,
+  amount: number,
+  memo: string
+): Promise<string> {
+  await initLoopServer();
+  const loop = await getLoop();
+
+  // Pre-flight gas check
+  try {
+    const dueGas = await loop.checkDueGas();
+    if (dueGas?.pending && dueGas?.tracking_id) {
+      await loop.payGas(dueGas.tracking_id);
+    }
+  } catch {
+    console.warn("[Canton] Pre-flight gas check failed (non-fatal)");
+  }
+
+  // Server-side RpcProvider.transfer() only prepares the payload — it does NOT submit.
+  // We must feed the prepared commands into loop.executeTransaction() which handles
+  // prepare → sign (with operator private key) → execute on-chain.
+  const provider = loop.getProvider();
+  const now = new Date();
+  const executeBefore = new Date(now.getTime() + 10 * 60 * 1000); // 10 min expiry
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const prepared: any = await provider.transfer(recipientPartyId, String(amount), undefined, {
+    memo,
+    requestedAt: now.toISOString(),
+    executeBefore: executeBefore.toISOString(),
+  });
+
+  // prepared is a ConnectTransferResponse: { payload: PreparedTransferPayload }
+  // which contains { commands, disclosedContracts, actAs, readAs, synchronizerId, ... }
+  const payload = prepared?.payload ?? prepared;
+
+  const result = await loop.executeTransaction({
+    commands:                      payload.commands               ?? [],
+    disclosedContracts:            payload.disclosedContracts     ?? [],
+    packageIdSelectionPreference:  payload.packageIdSelectionPreference ?? [],
+    actAs:                         payload.actAs,
+    readAs:                        payload.readAs,
+    synchronizerId:                payload.synchronizerId,
+  });
+
+  // Post-flight gas
+  try {
+    const dueGas = await loop.checkDueGas();
+    if (dueGas?.pending && dueGas?.tracking_id) {
+      await loop.payGas(dueGas.tracking_id);
+    }
+  } catch {
+    console.warn("[Canton] Post-transfer gas check failed (non-fatal)");
+  }
+
+  const updateId: string = result?.update_id ?? result?.command_id ?? "ok";
+  console.log(`[Canton] Sent ${amount} CBTC → ${recipientPartyId} | updateId: ${updateId}`);
+  return updateId;
+}
+
+/**
  * Accept a pending TransferInstruction on-chain.
  * Signs with the operator private key — settles the CBTC transfer.
  * Returns the update_id of the settled transaction.

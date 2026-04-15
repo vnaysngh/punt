@@ -27,9 +27,13 @@ const NAV_LINKS = [
 export default function Navbar() {
   const [depositOpen, setDepositOpen] = useState(false);
   const [dropdownOpen, setDropdownOpen] = useState(false);
-  const [dropdownPos, setDropdownPos] = useState<{ top: number; right: number } | null>(null);
+  const [dropdownPos, setDropdownPos] = useState<{
+    top: number;
+    right: number;
+  } | null>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
-  const { connected, partyId, walletType, appBalance, disconnect } = useWalletStore();
+  const { connected, partyId, walletType, appBalance, disconnect } =
+    useWalletStore();
   const { connect: handleConnectLoop, connecting } = useLoopConnect();
   const pathname = usePathname();
 
@@ -49,7 +53,10 @@ export default function Navbar() {
     const close = () => setDropdownOpen(false);
     window.addEventListener("scroll", close, true);
     window.addEventListener("resize", close);
-    return () => { window.removeEventListener("scroll", close, true); window.removeEventListener("resize", close); };
+    return () => {
+      window.removeEventListener("scroll", close, true);
+      window.removeEventListener("resize", close);
+    };
   }, [dropdownOpen]);
 
   const handleDisconnect = async () => {
@@ -60,14 +67,19 @@ export default function Navbar() {
         const loop = await getLoop();
         loop?.logout();
       } else if (walletType === "console") {
-        const { disconnectConsoleWallet } = await import("@/lib/console-wallet");
+        const { disconnectConsoleWallet } =
+          await import("@/lib/console-wallet");
         await disconnectConsoleWallet();
       }
-    } catch { /* silent */ }
+    } catch {
+      /* silent */
+    }
     disconnect();
   };
 
-  const shortId = partyId ? `${partyId.slice(0, 6)}...${partyId.slice(-4)}` : null;
+  const shortId = partyId
+    ? `${partyId.slice(0, 6)}...${partyId.slice(-4)}`
+    : null;
 
   return (
     <>
@@ -78,7 +90,10 @@ export default function Navbar() {
         <div className="relative max-w-7xl mx-auto px-4 sm:px-6 h-full flex items-center justify-between gap-6">
           {/* Logo */}
           <Link href="/" className="flex items-center gap-2.5 group shrink-0">
-            <span className="text-[22px] font-bold tracking-tight text-white" style={{ fontFamily: "var(--font-syne)" }}>
+            <span
+              className="text-[22px] font-bold tracking-tight text-white"
+              style={{ fontFamily: "var(--font-syne)" }}
+            >
               Punt
             </span>
           </Link>
@@ -91,7 +106,9 @@ export default function Navbar() {
                 href={href}
                 className={clsx(
                   "relative px-4 py-2 text-sm font-medium transition-colors",
-                  pathname === href ? "text-white" : "text-white/40 hover:text-white/70"
+                  pathname === href
+                    ? "text-white"
+                    : "text-white/40 hover:text-white/70"
                 )}
               >
                 {label}
@@ -117,7 +134,10 @@ export default function Navbar() {
                   className="hidden sm:flex items-center gap-1.5 h-9 px-3 rounded-xl bg-[#28cc95]/10 border border-[#28cc95]/20"
                 >
                   <Bitcoin className="w-3.5 h-3.5 text-[#28cc95] shrink-0" />
-                  <span className="text-[#5dd9ab] text-sm font-medium tabular-nums" style={{ fontFamily: "var(--font-space-mono)" }}>
+                  <span
+                    className="text-[#5dd9ab] text-sm font-medium tabular-nums"
+                    style={{ fontFamily: "var(--font-space-mono)" }}
+                  >
                     {appBalance.toFixed(5)}
                   </span>
                   <span className="text-[#28cc95]/60 text-xs">CBTC</span>
@@ -135,14 +155,40 @@ export default function Navbar() {
                 {/* Wallet trigger */}
                 <button
                   ref={triggerRef}
-                  onClick={() => dropdownOpen ? closeDropdown() : openDropdown()}
+                  onClick={() =>
+                    dropdownOpen ? closeDropdown() : openDropdown()
+                  }
                   className="flex items-center gap-2 h-9 pl-2.5 pr-2 rounded-xl border border-white/[0.08] hover:border-white/[0.14] bg-white/[0.03] hover:bg-white/[0.05] transition-all duration-200"
                 >
-                  <div className={clsx("w-5 h-5 rounded-md flex items-center justify-center", walletType === "loop" ? "bg-[#28cc95]/20" : "bg-violet-500/20")}>
-                    <Wallet className={clsx("w-3 h-3", walletType === "loop" ? "text-[#28cc95]" : "text-violet-400")} />
+                  <div
+                    className={clsx(
+                      "w-5 h-5 rounded-md flex items-center justify-center",
+                      walletType === "loop"
+                        ? "bg-[#28cc95]/20"
+                        : "bg-violet-500/20"
+                    )}
+                  >
+                    <Wallet
+                      className={clsx(
+                        "w-3 h-3",
+                        walletType === "loop"
+                          ? "text-[#28cc95]"
+                          : "text-violet-400"
+                      )}
+                    />
                   </div>
-                  <span className="hidden sm:block text-white/50 text-xs" style={{ fontFamily: "var(--font-space-mono)" }}>{shortId}</span>
-                  <ChevronDown className={clsx("w-3.5 h-3.5 text-white/20 transition-transform duration-200", dropdownOpen && "rotate-180")} />
+                  <span
+                    className="hidden sm:block text-white/50 text-xs"
+                    style={{ fontFamily: "var(--font-space-mono)" }}
+                  >
+                    {shortId}
+                  </span>
+                  <ChevronDown
+                    className={clsx(
+                      "w-3.5 h-3.5 text-white/20 transition-transform duration-200",
+                      dropdownOpen && "rotate-180"
+                    )}
+                  />
                 </button>
               </>
             ) : (
@@ -153,9 +199,16 @@ export default function Navbar() {
                 style={{ fontFamily: "var(--font-syne)" }}
               >
                 <div className="absolute inset-0 bg-gradient-to-r from-[#28cc95] to-[#1fa876] group-hover:from-[#28cc95] group-hover:to-[#28cc95] transition-all duration-300" />
-                <div className="absolute inset-0 opacity-0 group-hover:opacity-100 transition-opacity duration-300" style={{ boxShadow: "0 0 20px rgba(40,204,149,0.4)" }} />
+                <div
+                  className="absolute inset-0 opacity-0 group-hover:opacity-100 transition-opacity duration-300"
+                  style={{ boxShadow: "0 0 20px rgba(40,204,149,0.4)" }}
+                />
                 <span className="relative flex items-center gap-1.5 text-black">
-                  {connecting ? <Loader2 className="w-3.5 h-3.5 animate-spin text-black" /> : <Wallet className="w-3.5 h-3.5 text-black" />}
+                  {connecting ? (
+                    <Loader2 className="w-3.5 h-3.5 animate-spin text-black" />
+                  ) : (
+                    <Wallet className="w-3.5 h-3.5 text-black" />
+                  )}
                   {connecting ? "Connecting…" : "Connect Wallet"}
                 </span>
               </button>
@@ -181,16 +234,28 @@ export default function Navbar() {
               right: dropdownPos.right,
               zIndex: 999,
               background: "linear-gradient(160deg, #111120 0%, #0d0d1a 100%)",
-              border: "1px solid rgba(255,255,255,0.10)",
+              border: "1px solid rgba(255,255,255,0.10)"
             }}
           >
             <div className="h-px bg-gradient-to-r from-transparent via-[#28cc95]/40 to-transparent" />
             <div className="px-4 pt-3.5 pb-3 border-b border-white/[0.06]">
-              <p className="text-white/30 text-[11px] uppercase tracking-widest font-medium">Connected via</p>
-              <p className="text-white/80 text-sm font-semibold mt-0.5 capitalize" style={{ fontFamily: "var(--font-syne)" }}>{walletType} Wallet</p>
-              <p className="text-white/25 text-[11px] mt-1 truncate" style={{ fontFamily: "var(--font-space-mono)" }}>{partyId?.slice(0, 22)}...</p>
+              <p className="text-white/30 text-[11px] uppercase tracking-widest font-medium">
+                Connected via
+              </p>
+              <p
+                className="text-white/80 text-sm font-semibold mt-0.5 capitalize"
+                style={{ fontFamily: "var(--font-syne)" }}
+              >
+                {walletType} Wallet
+              </p>
+              <p
+                className="text-white/25 text-[11px] mt-1 truncate"
+                style={{ fontFamily: "var(--font-space-mono)" }}
+              >
+                {partyId?.slice(0, 22)}...
+              </p>
             </div>
-            <div className="p-1.5">
+            {/*  <div className="p-1.5">
               <button
                 onClick={() => { setDepositOpen(true); closeDropdown(); }}
                 className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl hover:bg-white/[0.05] text-white/50 hover:text-white text-sm font-medium transition-colors"
@@ -206,7 +271,7 @@ export default function Navbar() {
                 <LayoutDashboard className="w-4 h-4" />
                 Portfolio
               </Link>
-            </div>
+            </div> */}
             <div className="p-1.5 border-t border-white/[0.05]">
               <button
                 onClick={handleDisconnect}
