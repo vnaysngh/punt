@@ -2,20 +2,41 @@
 
 import { useState } from "react";
 import { connectLoop, autoConnectLoop } from "@/lib/loop-client";
-import { setLoopProvider } from "@/lib/loop-wallet";
+import { setLoopProvider, signMessage } from "@/lib/loop-wallet";
 import { useWalletStore } from "@/store/wallet-store";
 
 async function createSession(provider: { party_id: string; email?: string; public_key?: string }) {
+  const partyId   = provider.party_id;
+  const publicKey = provider.public_key;
+
+  if (!publicKey) throw new Error("Wallet did not provide a public key");
+
+  // Step 1: get a one-time challenge from the server
+  const challengeRes = await fetch(`/api/auth/challenge?partyId=${encodeURIComponent(partyId)}`);
+  if (!challengeRes.ok) throw new Error("Failed to get auth challenge");
+  const { challenge } = await challengeRes.json() as { challenge: string };
+
+  // Step 2: sign the challenge with the Loop wallet private key
+  // This triggers the "Signature Request" popup in the Loop wallet
+  const signature = await signMessage(challenge);
+
+  // Step 3: send partyId + publicKey + challenge + signature to server
+  // Server verifies Ed25519 signature — proves wallet ownership
   const res = await fetch("/api/auth/session", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
-      partyId:   provider.party_id,
-      email:     provider.email     ?? null,
-      publicKey: provider.public_key ?? null,
+      partyId,
+      publicKey,
+      challenge,
+      signature,
+      email: provider.email ?? null,
     }),
   });
-  if (!res.ok) throw new Error("Session creation failed");
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error((err as { error?: string }).error ?? "Session creation failed");
+  }
   return res.json() as Promise<{ token: string; appBalance: number }>;
 }
 

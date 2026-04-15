@@ -36,6 +36,26 @@ export function clearLoopProvider() {
  * Matches lastgwei wallet-store pay() — revalidates session before transfer,
  * always passes amount as string, and supports optional instrument.
  */
+/**
+ * Ask the Loop wallet to sign a message with the user's private key.
+ * Used for challenge-response authentication — proves wallet ownership.
+ * Returns the signature as a hex string.
+ */
+export async function signMessage(message: string): Promise<string> {
+  if (!_state.provider) {
+    throw new Error("Loop wallet not connected. Please reconnect.");
+  }
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const result: any = await _state.provider.signMessage(message);
+  // SDK returns payload from SIGN_RAW_MESSAGE_RESPONSE
+  // signature may be in result.signature or result directly as hex string
+  const sig: string = result?.signature ?? result?.sig ?? result;
+  if (typeof sig !== "string" || !sig) {
+    throw new Error("No signature returned from wallet");
+  }
+  return sig;
+}
+
 export async function pay(
   recipient: string,
   amount: string,

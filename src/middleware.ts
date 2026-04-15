@@ -41,6 +41,8 @@ interface RateRule {
 }
 
 const RATE_RULES: RateRule[] = [
+  // Auth: 10 challenge requests per minute per IP
+  { prefix: "/api/auth/challenge",        limit: 10,  windowMs: 60_000 },
   // Auth: 10 session creations per minute per IP
   { prefix: "/api/auth/session",          limit: 10,  windowMs: 60_000 },
   // Deposits: 5 per minute per IP (one real deposit flow takes ~15s)

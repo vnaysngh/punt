@@ -1,34 +1,48 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { signSession } from "@/lib/session";
+import { consumeChallengeForParty } from "@/app/api/auth/challenge/route";
+import forge from "node-forge";
 
 /**
  * POST /api/auth/session
  *
- * Issues a signed JWT session token after wallet connection.
+ * Issues a signed JWT after cryptographically verifying wallet ownership.
  *
- * Security model:
- *   - The Loop SDK / Console wallet SDK authenticates the user and
- *     provides a partyId + publicKey that is cryptographically tied
- *     to their wallet. We cannot re-verify the wallet signature here
- *     (the SDK does not expose the raw challenge/signature), so we
- *     treat the SDK callback as the trust boundary.
+ * Flow:
+ *   1. Client calls GET /api/auth/challenge?partyId=... → gets a random challenge
+ *   2. Client signs the challenge with their Loop wallet private key
+ *   3. Client sends { partyId, publicKey, signature, challenge } here
+ *   4. Server verifies: Ed25519 signature over challenge using publicKey
+ *   5. Server issues JWT containing partyId
  *
- *   - To prevent arbitrary partyId injection, we validate:
- *       1. partyId must be a non-empty string (wallet format)
- *       2. partyId must match the pattern Canton uses (hex/alphanumeric + ::)
- *       3. If publicKey provided, it must be a 64-byte hex string
- *       4. Rate: one session per partyId per 60 s (enforced by middleware)
- *
- *   - The issued JWT is short-lived (24h) and must be included in every
- *     money-moving request. The JWT is signed with SESSION_SECRET which
- *     is never exposed to the client.
- *
- *   - Balance is returned from DB, never from request body.
+ * Security:
+ *   - Proves the client controls the private key for this partyId
+ *   - Challenge is one-time use — deleted after verification
+ *   - Challenge expires after 5 minutes
+ *   - publicKey stored in DB for future verification
  */
 
-// Canton party ID format: <alias>::<fingerprint>
 const PARTY_ID_RE = /^[A-Za-z0-9_-]{1,128}::[0-9a-f]{8,}$/i;
+
+function verifyEd25519(
+  publicKeyHex: string,
+  message: string,
+  signatureHex: string
+): boolean {
+  try {
+    const publicKey = forge.util.hexToBytes(publicKeyHex);
+    const signature = forge.util.hexToBytes(signatureHex);
+    return forge.pki.ed25519.verify({
+      message,
+      encoding: "utf8",
+      publicKey,
+      signature,
+    });
+  } catch {
+    return false;
+  }
+}
 
 export async function POST(req: NextRequest) {
   try {
@@ -37,27 +51,60 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Invalid request" }, { status: 400 });
     }
 
-    const { partyId, email, publicKey } = body as Record<string, unknown>;
+    const { partyId, publicKey, signature, challenge, email } = body as Record<string, unknown>;
 
-    // Validate partyId
+    // Validate partyId format
     if (!partyId || typeof partyId !== "string" || !PARTY_ID_RE.test(partyId)) {
-      console.warn("[auth/session] rejected partyId:", partyId);
       return NextResponse.json({ error: "Invalid partyId" }, { status: 400 });
     }
 
-    // Validate publicKey if provided (should be hex string from wallet)
-    if (publicKey !== undefined && publicKey !== null) {
-      if (
-        typeof publicKey !== "string" ||
-        publicKey.length < 16 ||
-        publicKey.length > 256 ||
-        !/^[0-9a-fA-F]+$/.test(publicKey)
-      ) {
-        return NextResponse.json({ error: "Invalid publicKey" }, { status: 400 });
-      }
+    // Validate publicKey — required for signature verification
+    if (
+      !publicKey ||
+      typeof publicKey !== "string" ||
+      publicKey.length < 16 ||
+      publicKey.length > 256 ||
+      !/^[0-9a-fA-F]+$/.test(publicKey)
+    ) {
+      return NextResponse.json({ error: "Invalid publicKey" }, { status: 400 });
     }
 
-    // Validate email format if provided
+    // Validate signature format
+    if (
+      !signature ||
+      typeof signature !== "string" ||
+      !/^[0-9a-fA-F]+$/.test(signature)
+    ) {
+      return NextResponse.json({ error: "Invalid signature" }, { status: 400 });
+    }
+
+    // Validate challenge format
+    if (!challenge || typeof challenge !== "string") {
+      return NextResponse.json({ error: "Challenge required" }, { status: 400 });
+    }
+
+    // Consume challenge — one-time use, also validates it exists and hasn't expired
+    const storedChallenge = consumeChallengeForParty(partyId);
+    if (!storedChallenge) {
+      return NextResponse.json(
+        { error: "Challenge expired or not found. Request a new one." },
+        { status: 401 }
+      );
+    }
+
+    // Verify the challenge matches what we issued
+    if (storedChallenge !== challenge) {
+      return NextResponse.json({ error: "Challenge mismatch" }, { status: 401 });
+    }
+
+    // Cryptographic verification — proves client owns the private key for this publicKey
+    const valid = verifyEd25519(publicKey, challenge, signature);
+    if (!valid) {
+      console.warn("[auth/session] Signature verification failed for partyId:", partyId);
+      return NextResponse.json({ error: "Signature verification failed" }, { status: 401 });
+    }
+
+    // Validate email if provided
     if (email !== undefined && email !== null) {
       if (typeof email !== "string" || email.length > 320 || !email.includes("@")) {
         return NextResponse.json({ error: "Invalid email" }, { status: 400 });
@@ -68,20 +115,19 @@ export async function POST(req: NextRequest) {
     const user = await prisma.user.upsert({
       where: { partyId },
       update: {
-        email:     (typeof email     === "string" ? email     : null) ?? undefined,
-        publicKey: (typeof publicKey === "string" ? publicKey : null) ?? undefined,
+        publicKey,
+        email: (typeof email === "string" ? email : null) ?? undefined,
       },
       create: {
         partyId,
-        email:     typeof email     === "string" ? email     : null,
-        publicKey: typeof publicKey === "string" ? publicKey : null,
+        publicKey,
+        email:      typeof email === "string" ? email : null,
         appBalance: 0,
       },
     });
 
     const token = await signSession(partyId);
 
-    // Never return sensitive fields
     return NextResponse.json({
       token,
       appBalance: user.appBalance.toNumber(),
