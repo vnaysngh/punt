@@ -30,10 +30,17 @@ export async function getLoop(): Promise<LoopInstance | null> {
   }
 
   _initPromise = (async () => {
+    const network = process.env.NEXT_PUBLIC_LOOP_NETWORK;
+    if (!network || !["devnet", "mainnet", "local"].includes(network)) {
+      throw new Error(
+        `[loop-client] NEXT_PUBLIC_LOOP_NETWORK is "${network}" — must be "devnet", "mainnet", or "local". ` +
+        `This variable is baked in at build time by Next.js. Set it in Railway BEFORE triggering a build.`
+      );
+    }
     const { loop } = await import("@fivenorth/loop-sdk");
     loop.init({
       appName: "Punt",
-      network: process.env.NEXT_PUBLIC_LOOP_NETWORK as "devnet" | "mainnet" | "local",
+      network: network as "devnet" | "mainnet" | "local",
       onAccept: (provider) => {
         _pendingAccept?.(provider);
         _pendingAccept = null;

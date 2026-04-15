@@ -25,7 +25,8 @@ const securityHeaders = [
       "font-src 'self' https://fonts.gstatic.com",
       "img-src 'self' data: blob:",
       // Loop SDK connects to cantonloop.com (devnet + mainnet), loop.cash, and fivenorth.io
-      "connect-src 'self' https://*.cantonloop.com wss://*.cantonloop.com https://*.loop.cash wss://*.loop.cash https://*.fivenorth.io wss://*.fivenorth.io",
+      // cantonloop.com: both bare domain (mainnet) and subdomains (devnet uses devnet.cantonloop.com)
+      "connect-src 'self' https://cantonloop.com wss://cantonloop.com https://*.cantonloop.com wss://*.cantonloop.com https://*.loop.cash wss://*.loop.cash https://*.fivenorth.io wss://*.fivenorth.io",
       "frame-ancestors 'none'",
     ].join("; "),
   },
