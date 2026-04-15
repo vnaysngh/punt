@@ -7,6 +7,10 @@
     {
       "path": "/api/cron/detect-deposits",
       "schedule": "*/2 * * * *"
+    },
+    {
+      "path": "/api/cron/reconcile-withdrawals",
+      "schedule": "*/5 * * * *"
     }
   ]
 }

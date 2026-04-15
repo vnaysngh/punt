@@ -5,12 +5,15 @@ import { addMinutes } from "date-fns";
 
 export const dynamic = "force-dynamic";
 
-// Work entirely in number (float64) after converting Decimal at the boundary.
+// Use BigInt satoshi arithmetic for payout math — avoids float64 overflow.
+// betSats (max ~1e11) * adjustedPoolSats (max ~1e14) = ~1e25, exceeds Number.MAX_SAFE_INTEGER (9e15).
 type BetRow = { id: string; userId: string; direction: string; amount: number };
 const SATS         = 1e8;
-const toSats       = (n: number) => Math.round(n * SATS);
-const fromSats     = (n: number) => n / SATS;
-const PLATFORM_FEE = 0.05; // 5% — deducted from total pool before winner distribution
+const toSatsBig    = (n: number) => BigInt(Math.round(n * SATS));
+const fromSatsBig  = (n: bigint) => Number(n) / SATS;
+// 5% platform fee — BigInt(95)/BigInt(100) used directly in payout math (no float multiply)
+// Epsilon for DRAW detection — strict float equality fails for exchange price rounding noise
+const PRICE_EPSILON = 0.000001;
 
 /**
  * Settle a single expired market. Duplicated from cycle-markets so this route
@@ -36,15 +39,19 @@ async function settleMarketInline(marketId: string, closePrice: number) {
   const totalPool = totalUp + totalDown;
   const now = new Date();
 
-  const isDraw = closePrice === startPrice;
+  // DRAW: use epsilon comparison — strict equality fails for floating-point exchange prices
+  const isDraw = Math.abs(closePrice - startPrice) < PRICE_EPSILON;
   const winningDirection = isDraw ? "DRAW" : closePrice > startPrice ? "UP" : "DOWN";
   const winningPool = isDraw ? 0 : winningDirection === "UP" ? totalUp : totalDown;
 
   if (totalPool === 0) {
-    await prisma.market.update({
-      where: { id: marketId, status: { not: "SETTLED" } },
-      data: { closePrice, direction: winningDirection, status: "SETTLED", settledAt: now },
-    });
+    // Wrap in $transaction for consistent double-settlement guard (P2025 on concurrent settle)
+    await prisma.$transaction([
+      prisma.market.update({
+        where: { id: marketId, status: { not: "SETTLED" } },
+        data: { closePrice, direction: winningDirection, status: "SETTLED", settledAt: now },
+      }),
+    ]);
     return;
   }
 
@@ -63,13 +70,16 @@ async function settleMarketInline(marketId: string, closePrice: number) {
   const winnerBets = bets.filter((b) => b.direction === winningDirection);
   const loserBets  = bets.filter((b) => b.direction !== winningDirection);
 
-  // 5% platform fee from total pool before distribution
-  const adjustedPoolSats = Math.floor(toSats(totalPool) * (1 - PLATFORM_FEE));
-  const winningPoolSats  = toSats(winningPool);
+  // 5% platform fee from total pool before distribution.
+  // IMPORTANT: BigInt arithmetic — betSats * adjustedPoolSats can reach ~1e25, overflowing float64.
+  const totalPoolSatsBig    = toSatsBig(totalPool);
+  const adjustedPoolSatsBig = (totalPoolSatsBig * BigInt(95)) / BigInt(100);
+  const winningPoolSatsBig  = toSatsBig(winningPool);
 
   const payouts = winnerBets.map((bet) => {
-    const payoutSats = Math.floor((toSats(bet.amount) * adjustedPoolSats) / winningPoolSats);
-    return { bet, payout: fromSats(payoutSats) };
+    const betSatsBig    = toSatsBig(bet.amount);
+    const payoutSatsBig = (betSatsBig * adjustedPoolSatsBig) / winningPoolSatsBig;
+    return { bet, payout: fromSatsBig(payoutSatsBig) };
   });
 
   await prisma.$transaction([

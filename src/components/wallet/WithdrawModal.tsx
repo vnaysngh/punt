@@ -4,6 +4,7 @@ import { useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { X, Bitcoin, Loader2, CheckCircle2, AlertCircle, ArrowUpFromLine } from "lucide-react";
 import { useWalletStore } from "@/store/wallet-store";
+import { signMessage } from "@/lib/loop-wallet";
 import clsx from "clsx";
 import type { Variants } from "framer-motion";
 
@@ -21,7 +22,7 @@ export default function WithdrawModal({ open, onClose }: Props) {
   const [step, setStep] = useState<Step>("input");
   const [error, setError] = useState<string | null>(null);
   const [txId, setTxId] = useState<string | null>(null);
-  const { appBalance, setAppBalance, sessionToken } = useWalletStore();
+  const { appBalance, setAppBalance, sessionToken, partyId } = useWalletStore();
 
   const reset = () => { setAmount(""); setStep("input"); setError(null); setTxId(null); };
   const handleClose = () => { reset(); onClose(); };
@@ -37,18 +38,33 @@ export default function WithdrawModal({ open, onClose }: Props) {
   ];
 
   const handleWithdraw = async () => {
-    if (!isValid || !sessionToken) return;
+    // Guard against double-submit: step changes to "processing" synchronously on the
+    // first call, so any second call (double-click, React re-render) hits this check
+    // and exits before touching the network.
+    if (!isValid || !sessionToken || !partyId || step === "processing") return;
     setStep("processing");
     setError(null);
 
     try {
+      // Step 1: get a fresh one-time challenge from the server
+      const challengeRes = await fetch(
+        `/api/auth/challenge?partyId=${encodeURIComponent(partyId)}`
+      );
+      if (!challengeRes.ok) throw new Error("Failed to get auth challenge");
+      const { challenge } = await challengeRes.json() as { challenge: string };
+
+      // Step 2: sign challenge with Loop wallet private key
+      // This triggers the "Signature Request" popup — proves wallet ownership
+      const signature = await signMessage(challenge);
+
+      // Step 3: submit withdrawal with challenge + signature
       const res = await fetch("/api/withdraw", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
           "Authorization": `Bearer ${sessionToken}`,
         },
-        body: JSON.stringify({ amount: parsed }),
+        body: JSON.stringify({ amount: parsed, challenge, signature }),
       });
 
       const data = await res.json();
@@ -185,8 +201,8 @@ export default function WithdrawModal({ open, onClose }: Props) {
                       </div>
                     </div>
                     <div className="text-center">
-                      <p className="text-white font-semibold" style={{ fontFamily: "var(--font-syne)" }}>Processing withdrawal…</p>
-                      <p className="text-white/35 text-sm mt-1">Sending CBTC to your wallet on-chain</p>
+                      <p className="text-white font-semibold" style={{ fontFamily: "var(--font-syne)" }}>Confirm in your wallet…</p>
+                      <p className="text-white/35 text-sm mt-1">Sign the request in your Loop wallet to authorize</p>
                     </div>
                   </motion.div>
                 )}

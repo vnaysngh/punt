@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { requireAuth } from "@/lib/api-auth";
 
-const MIN_BET    = 0.00001; // 1000 satoshis — prevents spam/dust bets
+const MIN_BET    = 0.0001; // 10000 satoshis minimum bet
 const MAX_BET    = 1_000;   // 1000 CBTC hard cap
 const LOCK_BUFFER_MS = 5 * 60 * 1000; // 5 minutes — betting locks 5 min before round close
 const VALID_DIRECTIONS = new Set(["UP", "DOWN"]); // strict whitelist — DB stores as VARCHAR

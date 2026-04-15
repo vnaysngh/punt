@@ -6,9 +6,13 @@ import { verifyCronSecret } from "@/lib/cron-auth";
 type BetRow = { id: string; userId: string; direction: string; amount: number };
 
 const SATS         = 1e8;
-const toSats       = (n: number) => Math.round(n * SATS);
-const fromSats     = (n: number) => n / SATS;
-const PLATFORM_FEE = 0.05; // 5% — deducted from total pool before winner distribution
+const toSatsBig    = (n: number) => BigInt(Math.round(n * SATS));
+const fromSatsBig  = (n: bigint) => Number(n) / SATS;
+// 5% platform fee — BigInt(95)/BigInt(100) used directly in payout math to avoid float multiply
+
+// DRAW: use epsilon comparison instead of strict equality — float prices from exchange
+// may have rounding noise even when economically equal.
+const PRICE_EPSILON = 0.000001; // sub-cent — no real BTC price move is this small
 
 /**
  * POST /api/markets/[id]/settle
@@ -54,16 +58,20 @@ export async function POST(
     const totalPool  = totalUp + totalDown;
     const now = new Date();
 
-    // DRAW: price didn't move — refund everyone
-    const isDraw = closePrice === startPrice;
+    // DRAW: use epsilon comparison — strict equality fails for floating-point exchange prices
+    const isDraw = Math.abs(closePrice - startPrice) < PRICE_EPSILON;
     const winningDirection = isDraw ? "DRAW" : closePrice > startPrice ? "UP" : "DOWN";
     const winningPool = isDraw ? 0 : winningDirection === "UP" ? totalUp : totalDown;
 
     if (totalPool === 0) {
-      await prisma.market.update({
-        where: { id: marketId, status: { not: "SETTLED" } },
-        data: { closePrice, direction: winningDirection, status: "SETTLED", settledAt: now },
-      });
+      // Wrap in $transaction for consistent double-settlement guard:
+      // concurrent settle calls both hit WHERE status≠SETTLED; only one wins, other gets P2025.
+      await prisma.$transaction([
+        prisma.market.update({
+          where: { id: marketId, status: { not: "SETTLED" } },
+          data: { closePrice, direction: winningDirection, status: "SETTLED", settledAt: now },
+        }),
+      ]);
       return NextResponse.json({ settled: true, winningDirection, bets: 0 });
     }
 
@@ -86,14 +94,18 @@ export async function POST(
     const winnerBets = bets.filter((b) => b.direction === winningDirection);
     const loserBets  = bets.filter((b) => b.direction !== winningDirection);
 
-    // 5% platform fee from total pool before distribution
-    const adjustedPoolSats = Math.floor(toSats(totalPool) * (1 - PLATFORM_FEE));
-    const winningPoolSats  = toSats(winningPool);
+    // 5% platform fee from total pool before distribution.
+    // IMPORTANT: Use BigInt arithmetic — betSats * adjustedPoolSats can reach ~1e25,
+    // which overflows float64 safe integer range (Number.MAX_SAFE_INTEGER = 9e15).
+    const totalPoolSatsBig    = toSatsBig(totalPool);
+    const adjustedPoolSatsBig = (totalPoolSatsBig * BigInt(95)) / BigInt(100);
+    const winningPoolSatsBig  = toSatsBig(winningPool);
 
     const payouts = winnerBets.map((bet) => {
-      const betSats    = toSats(bet.amount);
-      const payoutSats = Math.floor((betSats * adjustedPoolSats) / winningPoolSats);
-      return { bet, payout: fromSats(payoutSats) };
+      const betSatsBig    = toSatsBig(bet.amount);
+      // BigInt division truncates (floor) automatically
+      const payoutSatsBig = (betSatsBig * adjustedPoolSatsBig) / winningPoolSatsBig;
+      return { bet, payout: fromSatsBig(payoutSatsBig) };
     });
 
     await prisma.$transaction([
