@@ -4,34 +4,23 @@ import { useState } from "react";
 import { connectLoop, autoConnectLoop } from "@/lib/loop-client";
 import { setLoopProvider, signMessage } from "@/lib/loop-wallet";
 import { useWalletStore } from "@/store/wallet-store";
+import type { LoopProvider } from "@/lib/loop-client";
 
-async function createSession(provider: { party_id: string; email?: string; public_key?: string }) {
+async function createSession(provider: LoopProvider) {
   const partyId   = provider.party_id;
   const publicKey = provider.public_key;
-
   if (!publicKey) throw new Error("Wallet did not provide a public key");
 
-  // Step 1: get a one-time challenge from the server
   const challengeRes = await fetch(`/api/auth/challenge?partyId=${encodeURIComponent(partyId)}`);
   if (!challengeRes.ok) throw new Error("Failed to get auth challenge");
   const { challenge } = await challengeRes.json() as { challenge: string };
 
-  // Step 2: sign the challenge with the Loop wallet private key
-  // This triggers the "Signature Request" popup in the Loop wallet
   const signature = await signMessage(challenge);
 
-  // Step 3: send partyId + publicKey + challenge + signature to server
-  // Server verifies Ed25519 signature — proves wallet ownership
   const res = await fetch("/api/auth/session", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      partyId,
-      publicKey,
-      challenge,
-      signature,
-      email: provider.email ?? null,
-    }),
+    body: JSON.stringify({ partyId, publicKey, challenge, signature, email: provider.email ?? null }),
   });
   if (!res.ok) {
     const err = await res.json().catch(() => ({}));
@@ -41,7 +30,9 @@ async function createSession(provider: { party_id: string; email?: string; publi
 }
 
 export function useLoopConnect() {
-  const [connecting, setConnecting] = useState(false);
+  const [connecting, setConnecting]               = useState(false);
+  const [verifyOpen, setVerifyOpen]               = useState(false);
+  const [pendingProvider, setPendingProvider]     = useState<LoopProvider | null>(null);
   const { setConnected } = useWalletStore();
 
   const connect = async () => {
@@ -50,43 +41,56 @@ export function useLoopConnect() {
     try {
       const provider = await connectLoop();
       setLoopProvider(provider);
-      const { token, appBalance } = await createSession(provider);
-      setConnected({
-        walletType:   "loop",
-        partyId:      provider.party_id,
-        email:        provider.email     ?? null,
-        publicKey:    provider.public_key ?? null,
-        sessionToken: token,
-      });
-      useWalletStore.getState().setAppBalance(appBalance ?? 0);
-    } catch {
-      // user closed QR or rejected — silently fail
+      // Loop tab has closed — user approved.
+      // Now show the "Verify Identity" modal so the user explicitly triggers signing.
+      // This avoids the race where signMessage fires before the WS is ready.
+      setPendingProvider(provider);
+      setVerifyOpen(true);
+    } catch (err) {
+      console.error("[useLoopConnect] connect failed:", err);
     } finally {
       setConnecting(false);
     }
   };
 
-  const autoConnect = async () => {
-    const provider = await autoConnectLoop();
-    if (!provider) return;
-    // Always restore the in-memory provider — it's lost on every page load
-    setLoopProvider(provider);
-    // Only create a new session if we don't already have one
-    if (useWalletStore.getState().sessionToken) return;
-    try {
-      const { token, appBalance } = await createSession(provider);
-      setConnected({
-        walletType:   "loop",
-        partyId:      provider.party_id,
-        email:        provider.email     ?? null,
-        publicKey:    provider.public_key ?? null,
-        sessionToken: token,
-      });
-      useWalletStore.getState().setAppBalance(appBalance ?? 0);
-    } catch {
-      // auto-connect failed silently
-    }
+  // Called when user clicks "Sign to Verify" in the modal
+  const handleSign = async () => {
+    if (!pendingProvider) throw new Error("No pending provider");
+    const { token, appBalance } = await createSession(pendingProvider);
+    setConnected({
+      walletType:   "loop",
+      partyId:      pendingProvider.party_id,
+      email:        pendingProvider.email     ?? null,
+      publicKey:    pendingProvider.public_key ?? null,
+      sessionToken: token,
+    });
+    useWalletStore.getState().setAppBalance(appBalance ?? 0);
+    setVerifyOpen(false);
+    setPendingProvider(null);
   };
 
-  return { connect, autoConnect, connecting };
+  const handleVerifyCancel = () => {
+    setVerifyOpen(false);
+    setPendingProvider(null);
+  };
+
+  const autoConnect = async () => {
+    const provider = await autoConnectLoop();
+    if (!provider) {
+      // Loop session is gone (expired or never existed).
+      // If the store thinks we're connected, clear it — stale state causes
+      // pay/signMessage to throw "Loop wallet not connected" silently.
+      if (useWalletStore.getState().connected) {
+        useWalletStore.getState().disconnect();
+      }
+      return;
+    }
+    setLoopProvider(provider);
+    // Token already in store — returning user, no need to re-sign.
+    if (useWalletStore.getState().sessionToken) return;
+    // No token but we have a provider — shouldn't happen in normal flow
+    // (new users go through the VerifyIdentityModal). Skip silently.
+  };
+
+  return { connect, autoConnect, connecting, verifyOpen, handleSign, handleVerifyCancel };
 }

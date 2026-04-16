@@ -18,6 +18,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import clsx from "clsx";
 import { useLoopConnect } from "@/hooks/useLoopConnect";
+import VerifyIdentityModal from "@/components/wallet/VerifyIdentityModal";
 
 const NAV_LINKS = [
   { href: "/", label: "Markets" },
@@ -34,7 +35,7 @@ export default function Navbar() {
   const triggerRef = useRef<HTMLButtonElement>(null);
   const { connected, partyId, walletType, appBalance, disconnect } =
     useWalletStore();
-  const { connect: handleConnectLoop, connecting } = useLoopConnect();
+  const { connect: handleConnectLoop, connecting, verifyOpen, handleSign, handleVerifyCancel } = useLoopConnect();
   const pathname = usePathname();
 
   const openDropdown = () => {
@@ -63,9 +64,8 @@ export default function Navbar() {
     closeDropdown();
     try {
       if (walletType === "loop") {
-        const { getLoop } = await import("@/lib/loop");
-        const loop = await getLoop();
-        loop?.logout();
+        const { logoutLoop } = await import("@/lib/loop-client");
+        await logoutLoop();
       } else if (walletType === "console") {
         const { disconnectConsoleWallet } =
           await import("@/lib/console-wallet");
@@ -194,7 +194,7 @@ export default function Navbar() {
             ) : (
               <button
                 onClick={handleConnectLoop}
-                disabled={connecting}
+                disabled={connecting || verifyOpen}
                 className="relative group h-9 px-4 rounded-xl text-sm font-semibold text-black transition-all duration-300 overflow-hidden disabled:opacity-60"
                 style={{ fontFamily: "var(--font-syne)" }}
               >
@@ -286,6 +286,7 @@ export default function Navbar() {
       )}
 
       <DepositModal open={depositOpen} onClose={() => setDepositOpen(false)} />
+      <VerifyIdentityModal open={verifyOpen} onSign={handleSign} onCancel={handleVerifyCancel} />
     </>
   );
 }
