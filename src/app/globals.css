@@ -28,6 +28,23 @@
   box-sizing: border-box;
 }
 
+@layer base {
+  button,
+  [role="button"],
+  a,
+  label,
+  select,
+  input[type="checkbox"],
+  input[type="radio"],
+  input[type="submit"],
+  input[type="button"],
+  input[type="reset"],
+  summary,
+  [tabindex]:not([tabindex="-1"]) {
+    cursor: pointer;
+  }
+}
+
 html {
   background: var(--bg);
   color: var(--text);
