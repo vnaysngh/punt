@@ -12,6 +12,7 @@ import {
   Zap,
   Loader2
 } from "lucide-react";
+import { fmt } from "@/lib/format";
 import { useWalletStore } from "@/store/wallet-store";
 import DepositModal from "@/components/wallet/DepositModal";
 import Link from "next/link";
@@ -33,10 +34,20 @@ export default function Navbar() {
     right: number;
   } | null>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
-  const { connected, partyId, walletType, appBalance, disconnect } =
+  const { connected, partyId, walletType, appBalance, disconnect, connectTrigger } =
     useWalletStore();
   const { connect: handleConnectLoop, connecting, verifyOpen, handleSign, handleVerifyCancel } = useLoopConnect();
   const pathname = usePathname();
+
+  // Other components call requestConnect() on the store instead of useLoopConnect directly.
+  // This effect ensures the single modal-owning instance (Navbar) handles it.
+  const prevTrigger = useRef(0);
+  useEffect(() => {
+    if (connectTrigger > prevTrigger.current) {
+      prevTrigger.current = connectTrigger;
+      if (!connected && !connecting) handleConnectLoop();
+    }
+  }, [connectTrigger, connected, connecting, handleConnectLoop]);
 
   const openDropdown = () => {
     if (triggerRef.current) {
@@ -127,20 +138,20 @@ export default function Navbar() {
           <div className="flex items-center gap-2 shrink-0">
             {connected ? (
               <>
-                {/* Balance chip */}
+                {/* Balance chip — visible on all screen sizes */}
                 <motion.div
                   initial={{ opacity: 0, scale: 0.8 }}
                   animate={{ opacity: 1, scale: 1 }}
-                  className="hidden sm:flex items-center gap-1.5 h-9 px-3 rounded-xl bg-[#28cc95]/10 border border-[#28cc95]/20"
+                  className="flex items-center gap-1.5 h-9 px-3 rounded-xl bg-[#28cc95]/10 border border-[#28cc95]/20"
                 >
                   <Bitcoin className="w-3.5 h-3.5 text-[#28cc95] shrink-0" />
                   <span
                     className="text-[#5dd9ab] text-sm font-medium tabular-nums"
                     style={{ fontFamily: "var(--font-space-mono)" }}
                   >
-                    {appBalance.toFixed(5)}
+                    {fmt(appBalance)}
                   </span>
-                  <span className="text-[#28cc95]/60 text-xs">CBTC</span>
+                  <span className="text-[#28cc95]/60 text-xs hidden sm:inline">CBTC</span>
                 </motion.div>
 
                 {/* Deposit */}

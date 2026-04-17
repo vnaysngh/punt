@@ -76,20 +76,10 @@ export function useLoopConnect() {
 
   const autoConnect = async () => {
     const provider = await autoConnectLoop();
-    if (!provider) {
-      // Loop session is gone (expired or never existed).
-      // If the store thinks we're connected, clear it — stale state causes
-      // pay/signMessage to throw "Loop wallet not connected" silently.
-      if (useWalletStore.getState().connected) {
-        useWalletStore.getState().disconnect();
-      }
-      return;
-    }
+    if (!provider) return; // Loop SDK session gone — leave app session intact
     setLoopProvider(provider);
     // Token already in store — returning user, no need to re-sign.
     if (useWalletStore.getState().sessionToken) return;
-    // No token but we have a provider — shouldn't happen in normal flow
-    // (new users go through the VerifyIdentityModal). Skip silently.
   };
 
   return { connect, autoConnect, connecting, verifyOpen, handleSign, handleVerifyCancel };

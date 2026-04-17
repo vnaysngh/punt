@@ -122,6 +122,19 @@ export async function sendTransfer(
   await initLoopServer();
   const loop = await getLoop();
 
+  // CBTC instrument — must be specified explicitly, otherwise provider.transfer()
+  // defaults to CC (Canton Coin / gas token) instead of CBTC.
+  // Same values used by DepositModal on the client side.
+  const instrumentId = process.env.NEXT_PUBLIC_CBTC_INSTRUMENT_ID;
+  const instrumentAdmin = process.env.NEXT_PUBLIC_CBTC_INSTRUMENT_ADMIN;
+  if (!instrumentId || !instrumentAdmin) {
+    throw new Error(
+      "Missing NEXT_PUBLIC_CBTC_INSTRUMENT_ID or NEXT_PUBLIC_CBTC_INSTRUMENT_ADMIN env vars — " +
+      "cannot send CBTC withdrawal without specifying the instrument"
+    );
+  }
+  const instrument = { instrument_id: instrumentId, instrument_admin: instrumentAdmin };
+
   // Pre-flight gas check
   try {
     const dueGas = await loop.checkDueGas();
@@ -140,7 +153,7 @@ export async function sendTransfer(
   const executeBefore = new Date(now.getTime() + 10 * 60 * 1000); // 10 min expiry
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const prepared: any = await provider.transfer(recipientPartyId, String(amount), undefined, {
+  const prepared: any = await provider.transfer(recipientPartyId, String(amount), instrument, {
     memo,
     requestedAt: now.toISOString(),
     executeBefore: executeBefore.toISOString(),

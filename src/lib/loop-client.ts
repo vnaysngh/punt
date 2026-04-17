@@ -84,4 +84,8 @@ export async function autoConnectLoop(): Promise<LoopProvider | null> {
 export async function logoutLoop(): Promise<void> {
   const loop = await getLoop();
   loop?.logout();
+  // Reset singleton so next connect() gets a clean init — prevents autoConnect()
+  // inside loop.connect() from finding a stale in-memory session after logout.
+  _loop = null;
+  _initPromise = null;
 }

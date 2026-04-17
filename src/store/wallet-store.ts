@@ -11,6 +11,7 @@ export type WalletState = {
   publicKey: string | null;
   appBalance: number;
   sessionToken: string | null;
+  connectTrigger: number; // increment to trigger connect from anywhere
 
   setConnected: (params: {
     walletType: WalletType;
@@ -21,6 +22,7 @@ export type WalletState = {
   }) => void;
   setAppBalance: (balance: number) => void;
   disconnect: () => void;
+  requestConnect: () => void;
 };
 
 export const useWalletStore = create<WalletState>()(
@@ -33,6 +35,7 @@ export const useWalletStore = create<WalletState>()(
       publicKey: null,
       appBalance: 0,
       sessionToken: null,
+      connectTrigger: 0,
 
       setConnected: ({ walletType, partyId, email, publicKey, sessionToken }) =>
         set({
@@ -45,6 +48,8 @@ export const useWalletStore = create<WalletState>()(
         }),
 
       setAppBalance: (balance) => set({ appBalance: balance }),
+
+      requestConnect: () => set((s) => ({ connectTrigger: s.connectTrigger + 1 })),
 
       disconnect: () =>
         set({

@@ -8,6 +8,7 @@ import MarketTimer from "./MarketTimer";
 import BetModal from "./BetModal";
 import { useWalletStore } from "@/store/wallet-store";
 import clsx from "clsx";
+import { fmt } from "@/lib/format";;
 
 type Props = {
   market: Market;
@@ -227,7 +228,7 @@ export default function MarketCard({
                     className="text-white font-bold text-base"
                     style={{ fontFamily: "var(--font-space-mono)" }}
                   >
-                    {totalPool.toFixed(6)}
+                    {fmt(totalPool)}
                   </p>
                 </div>
               </div>
@@ -249,7 +250,7 @@ export default function MarketCard({
                   className="text-white/20 text-xs"
                   style={{ fontFamily: "var(--font-space-mono)" }}
                 >
-                  {market.totalUp.toFixed(3)}
+                  {fmt(market.totalUp)}
                 </span>
               </div>
               <div className="flex items-center gap-1.5">
@@ -257,7 +258,7 @@ export default function MarketCard({
                   className="text-white/20 text-xs"
                   style={{ fontFamily: "var(--font-space-mono)" }}
                 >
-                  {market.totalDown.toFixed(3)}
+                  {fmt(market.totalDown)}
                 </span>
                 <span
                   className="text-red-400 font-bold text-sm"
@@ -335,7 +336,7 @@ export default function MarketCard({
                   className="text-white/50 text-xs font-bold"
                   style={{ fontFamily: "var(--font-space-mono)" }}
                 >
-                  {myBetAmount?.toFixed(6)}
+                  {myBetAmount != null ? fmt(myBetAmount) : null}
                 </span>
                 {myBetStatus && myBetStatus !== "PENDING" && (
                   <span

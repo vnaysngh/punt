@@ -65,8 +65,11 @@ async function settleMarket(marketId: string, closePrice: number) {
     return { marketId, closePrice, winningDirection, bets: 0 };
   }
 
-  // Refund all if: draw, or nobody bet on the winning side
-  if (isDraw || winningPool === 0) {
+  const winnerBets = bets.filter((b) => b.direction === winningDirection);
+  const loserBets  = bets.filter((b) => b.direction !== winningDirection);
+
+  // Refund all if: draw, nobody bet on winning side, or no counterparty (all bets on one side)
+  if (isDraw || winningPool === 0 || loserBets.length === 0) {
     await prisma.$transaction([
       prisma.market.update({
         where: { id: marketId, status: { not: "SETTLED" } },
@@ -87,9 +90,6 @@ async function settleMarket(marketId: string, closePrice: number) {
     ]);
     return { marketId, closePrice, winningDirection, refunded: bets.length };
   }
-
-  const winnerBets = bets.filter((b) => b.direction === winningDirection);
-  const loserBets  = bets.filter((b) => b.direction !== winningDirection);
 
   // 5% platform fee — deducted from total pool before distribution (PancakeSwap model)
   // adjustedPool = totalPool × 0.95 → distributed to winners

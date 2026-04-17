@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { X, Bitcoin, Loader2, CheckCircle2, AlertCircle, Info } from "lucide-react";
+import { fmt } from "@/lib/format";
 import { useWalletStore } from "@/store/wallet-store";
 import { submitConsoleTransfer } from "@/lib/console-wallet";
 import { pay as loopPay } from "@/lib/loop-wallet";
@@ -210,7 +211,7 @@ export default function DepositModal({ open, onClose }: Props) {
                         fontFamily: "var(--font-syne)",
                       }}
                     >
-                      {isValid ? `Deposit ${parsed.toFixed(5)} CBTC` : "Enter an amount"}
+                      {isValid ? `Deposit ${fmt(parsed)} CBTC` : "Enter an amount"}
                     </button>
                   </motion.div>
                 )}
@@ -249,7 +250,7 @@ export default function DepositModal({ open, onClose }: Props) {
                     </motion.div>
                     <div className="text-center">
                       <p className="text-white font-bold text-lg" style={{ fontFamily: "var(--font-syne)" }}>Deposit Confirmed!</p>
-                      <p className="text-white/40 text-sm mt-1">{parsed.toFixed(5)} CBTC added to your balance</p>
+                      <p className="text-white/40 text-sm mt-1">{fmt(parsed)} CBTC added to your balance</p>
                       {txId && (
                         <p className="text-white/15 text-[11px] mt-2" style={{ fontFamily: "var(--font-space-mono)" }}>
                           tx: {txId.slice(0, 24)}…

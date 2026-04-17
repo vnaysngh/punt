@@ -75,7 +75,11 @@ export async function POST(
       return NextResponse.json({ settled: true, winningDirection, bets: 0 });
     }
 
-    if (isDraw || winningPool === 0) {
+    const winnerBets = bets.filter((b) => b.direction === winningDirection);
+    const loserBets  = bets.filter((b) => b.direction !== winningDirection);
+
+    // Refund all if: draw, nobody bet on winning side, or no counterparty (all bets on one side)
+    if (isDraw || winningPool === 0 || loserBets.length === 0) {
       await prisma.$transaction([
         prisma.market.update({
           where: { id: marketId, status: { not: "SETTLED" } },
@@ -90,9 +94,6 @@ export async function POST(
       ]);
       return NextResponse.json({ settled: true, winningDirection, refunded: bets.length });
     }
-
-    const winnerBets = bets.filter((b) => b.direction === winningDirection);
-    const loserBets  = bets.filter((b) => b.direction !== winningDirection);
 
     // 5% platform fee from total pool before distribution.
     // IMPORTANT: Use BigInt arithmetic — betSats * adjustedPoolSats can reach ~1e25,

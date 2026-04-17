@@ -55,7 +55,11 @@ async function settleMarketInline(marketId: string, closePrice: number) {
     return;
   }
 
-  if (isDraw || winningPool === 0) {
+  const winnerBets = bets.filter((b) => b.direction === winningDirection);
+  const loserBets  = bets.filter((b) => b.direction !== winningDirection);
+
+  // Refund all if: draw, nobody bet on winning side, or no counterparty (all bets on one side)
+  if (isDraw || winningPool === 0 || loserBets.length === 0) {
     await prisma.$transaction([
       prisma.market.update({
         where: { id: marketId, status: { not: "SETTLED" } },
@@ -66,9 +70,6 @@ async function settleMarketInline(marketId: string, closePrice: number) {
     ]);
     return;
   }
-
-  const winnerBets = bets.filter((b) => b.direction === winningDirection);
-  const loserBets  = bets.filter((b) => b.direction !== winningDirection);
 
   // 5% platform fee from total pool before distribution.
   // IMPORTANT: BigInt arithmetic — betSats * adjustedPoolSats can reach ~1e25, overflowing float64.

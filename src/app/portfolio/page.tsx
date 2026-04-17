@@ -4,23 +4,33 @@ import { useEffect, useState, useCallback } from "react";
 import { motion } from "framer-motion";
 import {
   Bitcoin, TrendingUp, TrendingDown, CheckCircle, XCircle,
-  Clock, RotateCcw, ArrowDownToLine, ArrowUpFromLine, Wallet, BarChart3,
+  Clock, RotateCcw, ArrowDownToLine, ArrowUpFromLine, Wallet, BarChart3, ChevronDown, ChevronUp,
 } from "lucide-react";
+import { fmt, fmtSigned } from "@/lib/format";
 import { useWalletStore } from "@/store/wallet-store";
 import { useMarketStore, type Bet } from "@/store/market-store";
 import { format } from "date-fns";
 import clsx from "clsx";
 import DepositModal from "@/components/wallet/DepositModal";
 import WithdrawModal from "@/components/wallet/WithdrawModal";
-import { useLoopConnect } from "@/hooks/useLoopConnect";
+
+type Tx = {
+  id: string;
+  type: "deposit" | "withdrawal";
+  amount: number;
+  status: string;
+  txId: string | null;
+  createdAt: string;
+};
 
 export default function PortfolioPage() {
-  const { connected, partyId, appBalance } = useWalletStore();
+  const { connected, partyId, appBalance, requestConnect } = useWalletStore();
   const { myBets, setMyBets } = useMarketStore();
   const [loading, setLoading] = useState(false);
   const [depositOpen, setDepositOpen] = useState(false);
   const [withdrawOpen, setWithdrawOpen] = useState(false);
-  const { connect: connectLoop, connecting: connectingLoop } = useLoopConnect();
+  const [txs, setTxs] = useState<Tx[]>([]);
+  const [txOpen, setTxOpen] = useState(false);
 
   const fetchBets = useCallback(async () => {
     const { sessionToken } = useWalletStore.getState();
@@ -38,12 +48,15 @@ export default function PortfolioPage() {
 
   useEffect(() => {
     fetchBets();
-    // Also refresh balance from server
     const { sessionToken } = useWalletStore.getState();
     if (sessionToken) {
       fetch("/api/users", { headers: { "Authorization": `Bearer ${sessionToken}` }, cache: "no-store" })
         .then((r) => r.ok ? r.json() : null)
         .then((d) => { if (d && typeof d.appBalance === "number") useWalletStore.getState().setAppBalance(d.appBalance); })
+        .catch(() => {});
+      fetch("/api/transactions", { headers: { "Authorization": `Bearer ${sessionToken}` }, cache: "no-store" })
+        .then((r) => r.ok ? r.json() : [])
+        .then((d) => setTxs(Array.isArray(d) ? d : []))
         .catch(() => {});
     }
   }, [fetchBets]);
@@ -70,13 +83,13 @@ export default function PortfolioPage() {
           <h2 className="text-3xl font-extrabold text-white mb-2" style={{ fontFamily: "var(--font-syne)" }}>Your Portfolio</h2>
           <p className="text-white/35 text-sm max-w-xs mx-auto mb-8">Connect your wallet to see your bets, P&amp;L, and app balance.</p>
           <button
-            onClick={connectLoop}
-            disabled={connectingLoop}
+            onClick={requestConnect}
+            disabled={false}
             className="inline-flex items-center gap-2 px-6 py-3 rounded-2xl font-bold text-black text-sm transition-all disabled:opacity-60"
             style={{ background: "linear-gradient(135deg, #28cc95, #1fa876)", fontFamily: "var(--font-syne)" }}
           >
             <Wallet className="w-4 h-4 text-black" />
-            {connectingLoop ? "Connecting…" : "Connect Wallet"}
+            Connect Wallet
           </button>
         </motion.div>
       </div>
@@ -115,7 +128,7 @@ export default function PortfolioPage() {
             <p className="text-white/35 text-xs uppercase tracking-widest font-medium mb-2" style={{ fontFamily: "var(--font-space-mono)" }}>App Wallet Balance</p>
             <div className="flex items-baseline gap-3 mb-1">
               <span className="text-5xl font-extrabold text-white" style={{ fontFamily: "var(--font-space-mono)" }}>
-                {appBalance.toFixed(5)}
+                {fmt(appBalance)}
               </span>
               <span className="text-[#28cc95] font-bold text-xl">CBTC</span>
             </div>
@@ -145,11 +158,11 @@ export default function PortfolioPage() {
         {/* Stats */}
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-8">
           {[
-            { label: "Wagered", value: `${totalWagered.toFixed(6)}`, unit: "CBTC", icon: <Bitcoin className="w-4 h-4 text-white/30" />, color: "text-white" },
+            { label: "Wagered", value: `${fmt(totalWagered)}`, unit: "CBTC", icon: <Bitcoin className="w-4 h-4 text-white/30" />, color: "text-white" },
             { label: "Win Rate", value: `${winRate.toFixed(0)}%`, unit: "", icon: <BarChart3 className="w-4 h-4 text-violet-400" />, color: "text-violet-300" },
             {
               label: "Net P&L",
-              value: `${netPnl >= 0 ? "+" : ""}${netPnl.toFixed(6)}`,
+              value: fmtSigned(netPnl),
               unit: "CBTC",
               icon: netPnl >= 0 ? <TrendingUp className="w-4 h-4 text-green-400" /> : <TrendingDown className="w-4 h-4 text-red-400" />,
               color: netPnl >= 0 ? "text-green-300" : "text-red-300",
@@ -238,11 +251,11 @@ export default function PortfolioPage() {
                     <div className="text-right shrink-0 ml-3">
                       <div className="flex items-center gap-1 justify-end">
                         <Bitcoin className="w-3 h-3 text-[#28cc95]/60" />
-                        <span className="text-white font-bold text-sm" style={{ fontFamily: "var(--font-space-mono)" }}>{bet.amount.toFixed(6)}</span>
+                        <span className="text-white font-bold text-sm" style={{ fontFamily: "var(--font-space-mono)" }}>{fmt(bet.amount)}</span>
                       </div>
                       {isWon && bet.payout != null && (
                         <p className="text-green-400 text-xs font-bold mt-0.5" style={{ fontFamily: "var(--font-space-mono)" }}>
-                          +{(bet.payout - bet.amount).toFixed(6)}
+                          +{fmt(bet.payout - bet.amount)}
                         </p>
                       )}
                       {isLost && <p className="text-red-400/50 text-xs mt-0.5">lost</p>}
@@ -255,6 +268,67 @@ export default function PortfolioPage() {
             </div>
           )}
         </div>
+
+        {/* ─── Transaction History ─── */}
+        {txs.length > 0 && (
+          <div className="mt-10">
+            <button
+              onClick={() => setTxOpen(!txOpen)}
+              className="flex items-center gap-2 text-white/30 hover:text-white/60 text-sm font-semibold mb-4 transition-colors"
+              style={{ fontFamily: "var(--font-syne)" }}
+            >
+              {txOpen ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+              Transaction History ({txs.length})
+            </button>
+            {txOpen && (
+              <div className="space-y-2">
+                {txs.map((tx) => {
+                  const isDeposit = tx.type === "deposit";
+                  const isPending = tx.status === "PENDING";
+                  const isConfirmed = tx.status === "CONFIRMED" || tx.status === "COMPLETED";
+                  return (
+                    <div
+                      key={tx.id}
+                      className="flex items-center justify-between p-4 rounded-2xl"
+                      style={{
+                        background: isDeposit ? "rgba(40,204,149,0.03)" : "rgba(139,92,246,0.03)",
+                        border: isDeposit ? "1px solid rgba(40,204,149,0.10)" : "1px solid rgba(139,92,246,0.10)",
+                      }}
+                    >
+                      <div className="flex items-center gap-3">
+                        <div className="w-9 h-9 rounded-xl flex items-center justify-center shrink-0"
+                          style={{ background: isDeposit ? "rgba(40,204,149,0.1)" : "rgba(139,92,246,0.1)" }}>
+                          {isDeposit
+                            ? <ArrowDownToLine className="w-4 h-4 text-[#28cc95]" />
+                            : <ArrowUpFromLine className="w-4 h-4 text-violet-400" />}
+                        </div>
+                        <div>
+                          <p className="text-white/70 text-sm font-semibold capitalize" style={{ fontFamily: "var(--font-syne)" }}>
+                            {tx.type}
+                          </p>
+                          <p className="text-white/25 text-[11px]" style={{ fontFamily: "var(--font-space-mono)" }}>
+                            {format(new Date(tx.createdAt), "MMM d, HH:mm")}
+                            {isPending && <span className="ml-2 text-amber-400/60">· pending</span>}
+                            {isConfirmed && <span className="ml-2 text-[#28cc95]/50">· confirmed</span>}
+                          </p>
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-1.5 text-right">
+                        <Bitcoin className="w-3 h-3 text-[#28cc95]/50" />
+                        <span
+                          className={clsx("font-bold text-sm", isDeposit ? "text-[#5dd9ab]" : "text-violet-300")}
+                          style={{ fontFamily: "var(--font-space-mono)" }}
+                        >
+                          {isDeposit ? "+" : "−"}{fmt(tx.amount)}
+                        </span>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        )}
       </div>
 
       <DepositModal open={depositOpen} onClose={() => setDepositOpen(false)} />

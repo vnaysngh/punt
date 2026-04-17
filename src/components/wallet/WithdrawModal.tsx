@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { X, Bitcoin, Loader2, CheckCircle2, AlertCircle, ArrowUpFromLine } from "lucide-react";
+import { fmt } from "@/lib/format";
 import { useWalletStore } from "@/store/wallet-store";
 import { signMessage } from "@/lib/loop-wallet";
 import clsx from "clsx";
@@ -123,7 +124,7 @@ export default function WithdrawModal({ open, onClose }: Props) {
                       <div className="flex items-center gap-1.5">
                         <Bitcoin className="w-3.5 h-3.5 text-[#28cc95]" />
                         <span className="text-white font-bold text-sm" style={{ fontFamily: "var(--font-space-mono)" }}>
-                          {appBalance.toFixed(5)} CBTC
+                          {fmt(appBalance)} CBTC
                         </span>
                       </div>
                     </div>
@@ -156,7 +157,7 @@ export default function WithdrawModal({ open, onClose }: Props) {
                     {/* Quick amounts */}
                     <div className="grid grid-cols-4 gap-2">
                       {QUICK.map(({ label, f }) => {
-                        const val = parseFloat((appBalance * f).toFixed(5));
+                        const val = parseFloat(fmt(appBalance * f));
                         return (
                           <button
                             key={label}
@@ -186,7 +187,7 @@ export default function WithdrawModal({ open, onClose }: Props) {
                         fontFamily: "var(--font-syne)",
                       }}
                     >
-                      {isValid ? `Withdraw ${parsed.toFixed(5)} CBTC` : "Enter an amount"}
+                      {isValid ? `Withdraw ${fmt(parsed)} CBTC` : "Enter an amount"}
                     </button>
                   </motion.div>
                 )}
@@ -221,7 +222,7 @@ export default function WithdrawModal({ open, onClose }: Props) {
                     </motion.div>
                     <div className="text-center">
                       <p className="text-white font-bold text-lg" style={{ fontFamily: "var(--font-syne)" }}>Withdrawal Sent!</p>
-                      <p className="text-white/40 text-sm mt-1">{parsed.toFixed(5)} CBTC sent to your wallet</p>
+                      <p className="text-white/40 text-sm mt-1">{fmt(parsed)} CBTC sent to your wallet</p>
                       {txId && (
                         <p className="text-white/15 text-[11px] mt-2" style={{ fontFamily: "var(--font-space-mono)" }}>
                           tx: {txId.slice(0, 24)}…

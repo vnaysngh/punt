@@ -15,7 +15,7 @@ export default function WalletHydrator() {
       headers: { "Authorization": `Bearer ${token}` },
       cache: "no-store",
     })
-      .then((r) => r.json())
+      .then((r) => r.ok ? r.json() : Promise.reject(r.status))
       .then((data) => {
         if (typeof data.appBalance === "number") setAppBalance(data.appBalance);
       })
@@ -24,6 +24,12 @@ export default function WalletHydrator() {
 
   // Restore session on page load (e.g. after refresh)
   useEffect(() => {
+    // If localStorage has connected=true but no sessionToken, the stored state
+    // is corrupt (happened during a broken auth flow). Clear it so user can re-login.
+    if (connected && !sessionToken) {
+      useWalletStore.getState().disconnect();
+      return;
+    }
     autoConnect();
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);

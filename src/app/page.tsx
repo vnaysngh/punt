@@ -16,12 +16,13 @@ import {
   RefreshCw
 } from "lucide-react";
 
+import { fmt, fmtSigned } from "@/lib/format";
 import MarketTimer from "@/components/market/MarketTimer";
 import PriceChart from "@/components/market/PriceChart";
+import ToastContainer, { type ToastData } from "@/components/ui/Toast";
 import { useMarketStore, type Market, type Bet } from "@/store/market-store";
 import { useWalletStore } from "@/store/wallet-store";
 import clsx from "clsx";
-import { useLoopConnect } from "@/hooks/useLoopConnect";
 
 const FRACS = [
   { label: "25%", f: 0.25 },
@@ -39,9 +40,16 @@ type BetStep = "input" | "submitting" | "success" | "error";
 export default function MarketsPage() {
   const { markets, myBets, setMarkets, setMyBets, setLoading, loading } =
     useMarketStore();
-  const { connected, partyId, appBalance, setAppBalance, sessionToken } =
-    useWalletStore();
-  const { connect: connectLoop, connecting: connectingLoop } = useLoopConnect();
+  const {
+    connected,
+    partyId,
+    appBalance,
+    setAppBalance,
+    sessionToken,
+    requestConnect
+  } = useWalletStore();
+  const connectLoop = requestConnect;
+  const connectingLoop = false;
   const [btcPrice, setBtcPrice] = useState<number | null>(null);
   const [priceDir, setPriceDir] = useState<"up" | "down" | null>(null);
   const priceDirTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -54,6 +62,18 @@ export default function MarketsPage() {
   const [timerExpired, setTimerExpired] = useState(false);
   const [historyOpen, setHistoryOpen] = useState(false);
   const [totalRoundCount, setTotalRoundCount] = useState(0);
+  const [submitting, setSubmitting] = useState(false);
+  const [toasts, setToasts] = useState<ToastData[]>([]);
+  const prevMyBetsRef = useRef<Bet[]>([]);
+
+  const addToast = useCallback((toast: Omit<ToastData, "id">) => {
+    const id = Math.random().toString(36).slice(2);
+    setToasts((prev) => [...prev.slice(-3), { ...toast, id }]);
+  }, []);
+
+  const dismissToast = useCallback((id: string) => {
+    setToasts((prev) => prev.filter((t) => t.id !== id));
+  }, []);
   const [marketBets, setMarketBets] = useState<
     Array<{
       id: string;
@@ -188,6 +208,36 @@ export default function MarketsPage() {
     setTimerExpired(false);
   }, [liveMarket?.id]);
 
+  // Detect win/loss/refund when a previously PENDING bet gets settled
+  useEffect(() => {
+    const prev = prevMyBetsRef.current;
+    myBets.forEach((bet: Bet) => {
+      const was = prev.find((b) => b.id === bet.id);
+      if (was?.status === "PENDING" && bet.status !== "PENDING") {
+        if (bet.status === "WON") {
+          addToast({
+            type: "win",
+            title: "You won! 🎉",
+            message: `+${fmt((bet.payout ?? 0) - bet.amount)} CBTC profit`
+          });
+        } else if (bet.status === "LOST") {
+          addToast({
+            type: "loss",
+            title: "Round lost",
+            message: `−${fmt(bet.amount)} CBTC`
+          });
+        } else if (bet.status === "REFUNDED") {
+          addToast({
+            type: "refund",
+            title: "Bet refunded",
+            message: `${fmt(bet.amount)} CBTC returned to your balance`
+          });
+        }
+      }
+    });
+    prevMyBetsRef.current = myBets;
+  }, [myBets, addToast]);
+
   // Tick every second so bettingLocked flips in real-time
   const [now, setNow] = useState(Date.now());
   useEffect(() => {
@@ -225,17 +275,26 @@ export default function MarketsPage() {
         (isValid && direction === "UP" ? parsed : 0)
       : (liveMarket?.totalDown ?? 0) +
         (isValid && direction === "DOWN" ? parsed : 0);
+  const opposingPool =
+    direction === "UP"
+      ? (liveMarket?.totalDown ?? 0)
+      : (liveMarket?.totalUp ?? 0);
+  // No counterparty = everyone on one side, bet will be refunded at close
+  const noCounterparty = isValid && opposingPool === 0;
   // Payout estimate includes 5% platform fee (deducted from pool before distribution)
   const adjustedPool = potentialPool * (1 - PLATFORM_FEE);
   const potentialPayout =
-    winningPool > 0 && isValid ? (parsed / winningPool) * adjustedPool : 0;
-  const profit = potentialPayout - (isValid ? parsed : 0);
+    winningPool > 0 && isValid && !noCounterparty
+      ? (parsed / winningPool) * adjustedPool
+      : 0;
+  const profit = potentialPayout - (isValid && !noCounterparty ? parsed : 0);
 
   const myBet = liveMarket ? myBetMap[liveMarket.id] : null;
   const isOpen = liveMarket?.status === "OPEN" && !timerExpired;
 
   const handleBet = async () => {
-    if (!isValid || !sessionToken || !liveMarket) return;
+    if (!isValid || !sessionToken || !liveMarket || submitting) return;
+    setSubmitting(true);
     setStep("submitting");
     setBetError(null);
     try {
@@ -251,7 +310,6 @@ export default function MarketsPage() {
       if (!res.ok) throw new Error(data.error ?? "Bet failed");
       setAppBalance(data.appBalance);
       setStep("success");
-      // Refresh user bets AND round activity list immediately
       fetchBets();
       if (liveMarket) {
         fetch(`/api/markets/${liveMarket.id}/bets`, { cache: "no-store" })
@@ -264,6 +322,8 @@ export default function MarketsPage() {
     } catch (err) {
       setBetError(err instanceof Error ? err.message : "Failed to place bet");
       setStep("error");
+    } finally {
+      setSubmitting(false);
     }
   };
 
@@ -369,6 +429,49 @@ export default function MarketsPage() {
           </div>
         </motion.div>
 
+        {/* ─── Onboarding banner: connected but no balance ─── */}
+        {connected && appBalance === 0 && !loading && (
+          <motion.div
+            initial={{ opacity: 0, y: -8 }}
+            animate={{ opacity: 1, y: 0 }}
+            className="flex items-center justify-between gap-4 px-4 py-3 rounded-2xl mb-6"
+            style={{
+              background: "rgba(40,204,149,0.07)",
+              border: "1px solid rgba(40,204,149,0.18)"
+            }}
+          >
+            <div className="flex items-center gap-3 min-w-0">
+              <div
+                className="w-8 h-8 rounded-xl flex items-center justify-center shrink-0"
+                style={{ background: "rgba(40,204,149,0.15)" }}
+              >
+                <Bitcoin className="w-4 h-4 text-[#28cc95]" />
+              </div>
+              <div className="min-w-0">
+                <p
+                  className="text-white/80 text-sm font-semibold"
+                  style={{ fontFamily: "var(--font-syne)" }}
+                >
+                  Deposit CBTC to start betting
+                </p>
+                <p className="text-white/30 text-xs truncate">
+                  Send CBTC to your app wallet · min bet is {MIN_BET} CBTC
+                </p>
+              </div>
+            </div>
+            <a
+              href="/portfolio"
+              className="shrink-0 px-4 py-2 rounded-xl font-bold text-xs text-black transition-all hover:opacity-90"
+              style={{
+                background: "linear-gradient(135deg, #28cc95, #1fa876)",
+                fontFamily: "var(--font-syne)"
+              }}
+            >
+              Deposit
+            </a>
+          </motion.div>
+        )}
+
         {/* ─── Main Market Layout ─── */}
         {loading && markets.length === 0 ? (
           <div className="space-y-4">
@@ -396,8 +499,32 @@ export default function MarketsPage() {
               Settling round…
             </p>
             <p className="text-white/20 text-sm mt-1.5">
-              Calculating results · next round starts shortly
+              Calculating results · next round starts in a few seconds
             </p>
+            <div
+              className="mt-6 max-w-xs text-left rounded-2xl px-4 py-3 space-y-1.5"
+              style={{
+                background: "rgba(255,255,255,0.02)",
+                border: "1px solid rgba(255,255,255,0.05)"
+              }}
+            >
+              <p className="text-white/20 text-[11px] uppercase tracking-widest font-semibold mb-2">
+                How it works
+              </p>
+              {[
+                "Settlement uses Binance BTC/USDT spot price at round close",
+                "Winners share the pool minus 5% platform fee",
+                "Price unchanged? Round is a DRAW — all bets fully refunded"
+              ].map((line) => (
+                <p
+                  key={line}
+                  className="text-white/25 text-xs flex items-start gap-2"
+                >
+                  <span className="text-[#28cc95]/40 mt-0.5">·</span>
+                  {line}
+                </p>
+              ))}
+            </div>
           </div>
         ) : (
           <motion.div
@@ -451,7 +578,7 @@ export default function MarketsPage() {
                   <div className="flex items-center gap-1.5">
                     <span className="text-white/25 text-xs">Locked price</span>
                     <span
-                      className="text-white/60 text-xs font-bold"
+                      className="text-amber-300 font-bold text-xs"
                       style={{ fontFamily: "var(--font-space-mono)" }}
                     >
                       $
@@ -468,36 +595,29 @@ export default function MarketsPage() {
                       className="text-white/60 text-xs font-bold"
                       style={{ fontFamily: "var(--font-space-mono)" }}
                     >
-                      {totalPool.toFixed(6)} CBTC
+                      {fmt(totalPool)} CBTC
                     </span>
                   </div>
-                  {btcPrice && liveMarket.startPrice > 0 && (
-                    <>
-                      <span className="text-white/10">·</span>
-                      <div className="flex items-center gap-1.5">
-                        <span className="text-white/25 text-xs">
-                          Δ since open
-                        </span>
-                        <span
-                          className={clsx(
-                            "text-xs font-bold",
-                            btcPrice >= liveMarket.startPrice
-                              ? "text-green-400"
-                              : "text-red-400"
-                          )}
-                          style={{ fontFamily: "var(--font-space-mono)" }}
-                        >
-                          {btcPrice >= liveMarket.startPrice ? "+" : ""}
-                          {(
-                            ((btcPrice - liveMarket.startPrice) /
-                              liveMarket.startPrice) *
-                            100
-                          ).toFixed(3)}
-                          %
-                        </span>
-                      </div>
-                    </>
-                  )}
+                  <span className="text-white/10">·</span>
+                  <span className="text-white/25 text-xs">
+                    Fee{" "}
+                    <span
+                      className="text-white/40 font-semibold"
+                      style={{ fontFamily: "var(--font-space-mono)" }}
+                    >
+                      5%
+                    </span>
+                  </span>
+                  <span className="text-white/10">·</span>
+                  <span className="text-white/25 text-xs">
+                    Min Bet &nbsp;
+                    <span
+                      className="text-white/40 font-semibold"
+                      style={{ fontFamily: "var(--font-space-mono)" }}
+                    >
+                      {MIN_BET} CBTC
+                    </span>
+                  </span>
                 </div>
               </div>
 
@@ -685,7 +805,7 @@ export default function MarketsPage() {
                               style={{ fontFamily: "var(--font-space-mono)" }}
                             >
                               {connected
-                                ? `${appBalance.toFixed(5)} CBTC`
+                                ? `${fmt(appBalance)} CBTC`
                                 : "—"}
                             </span> */}
                           </div>
@@ -720,32 +840,23 @@ export default function MarketsPage() {
                               </span>
                             </div>
                           </div>
-                          {/* Min bet hint / warning */}
-                          <div className="flex justify-between items-center mt-1.5 px-0.5">
-                            {isBelowMin ? (
+                          {/* Min bet warning — only shown when user types below min */}
+                          {isBelowMin && (
+                            <div className="mt-1.5 px-0.5">
                               <span
                                 className="text-red-400/80 text-[11px]"
                                 style={{ fontFamily: "var(--font-space-mono)" }}
                               >
                                 Min bet is {MIN_BET} CBTC
                               </span>
-                            ) : (
-                              <span
-                                className="text-white/15 text-[11px]"
-                                style={{ fontFamily: "var(--font-space-mono)" }}
-                              >
-                                Min {MIN_BET} CBTC
-                              </span>
-                            )}
-                          </div>
+                            </div>
+                          )}
 
                           <div className="grid grid-cols-4 gap-1.5 mt-2">
                             {FRACS.map(({ label, f }) => (
                               <button
                                 key={label}
-                                onClick={() =>
-                                  setAmount((appBalance * f).toFixed(5))
-                                }
+                                onClick={() => setAmount(fmt(appBalance * f))}
                                 disabled={
                                   !connected ||
                                   !isOpen ||
@@ -778,28 +889,35 @@ export default function MarketsPage() {
                                 className="text-white font-semibold"
                                 style={{ fontFamily: "var(--font-space-mono)" }}
                               >
-                                {potentialPayout.toFixed(6)}
+                                {noCounterparty
+                                  ? fmt(parsed)
+                                  : fmt(potentialPayout)}
                               </span>
                             </div>
-                            <div className="flex justify-between text-sm">
-                              <span className="text-white/35">Profit</span>
-                              <span
-                                className={clsx(
-                                  "font-bold",
-                                  profit >= 0
-                                    ? "text-green-400"
-                                    : "text-red-400"
-                                )}
-                                style={{ fontFamily: "var(--font-space-mono)" }}
-                              >
-                                {profit >= 0 ? "+" : ""}
-                                {profit.toFixed(6)}
-                              </span>
-                            </div>
-                            <p className="text-white/15 text-[10px]">
+                            {!noCounterparty && (
+                              <div className="flex justify-between text-sm">
+                                <span className="text-white/35">
+                                  If correct
+                                </span>
+                                <span
+                                  className={clsx(
+                                    "font-bold",
+                                    profit >= 0
+                                      ? "text-green-400"
+                                      : "text-red-400"
+                                  )}
+                                  style={{
+                                    fontFamily: "var(--font-space-mono)"
+                                  }}
+                                >
+                                  {fmtSigned(profit)}
+                                </span>
+                              </div>
+                            )}
+                            {/* <p className="text-white/15 text-[10px]">
                               Estimate after 5% platform fee. Final payout
                               depends on pool at close.
-                            </p>
+                            </p> */}
                           </motion.div>
                         )}
 
@@ -871,10 +989,10 @@ export default function MarketsPage() {
                           ) : (
                             <button
                               onClick={handleBet}
-                              disabled={!isValid}
+                              disabled={!isValid || submitting}
                               className={clsx(
-                                "w-full py-3.5 rounded-xl font-bold text-sm flex items-center justify-center gap-2 text-white transition-all active:scale-[0.98]",
-                                isValid
+                                "w-full py-3.5 rounded-xl font-bold text-sm flex flex-col items-center justify-center gap-0.5 text-white transition-all active:scale-[0.98]",
+                                isValid && !submitting
                                   ? "hover:opacity-90"
                                   : "opacity-30 cursor-not-allowed"
                               )}
@@ -889,16 +1007,25 @@ export default function MarketsPage() {
                                 fontFamily: "var(--font-syne)"
                               }}
                             >
-                              {direction === "UP" ? (
-                                <TrendingUp className="w-4 h-4" />
-                              ) : direction === "DOWN" ? (
-                                <TrendingDown className="w-4 h-4" />
-                              ) : null}
-                              {!direction
-                                ? "Select UP or DOWN"
-                                : !isValid
-                                  ? "Enter amount"
-                                  : `Bet ${direction} · ${parsed.toFixed(6)} CBTC`}
+                              <span className="flex items-center gap-2">
+                                {direction === "UP" ? (
+                                  <TrendingUp className="w-4 h-4" />
+                                ) : direction === "DOWN" ? (
+                                  <TrendingDown className="w-4 h-4" />
+                                ) : null}
+                                {!direction
+                                  ? "Select UP or DOWN"
+                                  : !isValid
+                                    ? "Enter amount"
+                                    : `Bet ${direction} · ${fmt(parsed)} CBTC`}
+                              </span>
+                              {/*  {isValid && (
+                                <span className="text-white/50 text-[10px] font-normal">
+                                  {noCounterparty
+                                    ? `est. payout: ${fmt(parsed)} CBTC`
+                                    : `5% fee · gain if correct: ${fmtSigned(profit)}`}
+                                </span>
+                              )} */}
                             </button>
                           )}
                         </div>
@@ -956,7 +1083,7 @@ export default function MarketsPage() {
                             Bet Placed!
                           </p>
                           <p className="text-white/35 text-sm mt-1">
-                            {parsed.toFixed(6)} CBTC on {direction}
+                            {fmt(parsed)} CBTC on {direction}
                           </p>
                         </div>
                       </motion.div>
@@ -1010,12 +1137,19 @@ export default function MarketsPage() {
                   myBet.direction === "UP"
                     ? liveMarket.totalUp
                     : liveMarket.totalDown;
+                const opposingMyPool =
+                  myBet.direction === "UP"
+                    ? liveMarket.totalDown
+                    : liveMarket.totalUp;
+                const myBetNoCounterparty = opposingMyPool === 0;
                 const adjustedTotalPool = totalPool * (1 - PLATFORM_FEE);
                 const estPayout =
-                  myPool > 0
+                  myPool > 0 && !myBetNoCounterparty
                     ? (myBet.amount / myPool) * adjustedTotalPool
                     : myBet.amount;
-                const estProfit = estPayout - myBet.amount;
+                const estProfit = myBetNoCounterparty
+                  ? 0
+                  : estPayout - myBet.amount;
                 const isUp = myBet.direction === "UP";
                 return (
                   <motion.div
@@ -1055,7 +1189,7 @@ export default function MarketsPage() {
                           className="text-white/60 text-sm font-bold"
                           style={{ fontFamily: "var(--font-space-mono)" }}
                         >
-                          {myBet.amount.toFixed(6)}
+                          {fmt(myBet.amount)}
                         </span>
                         <span className="text-white/20 text-xs">CBTC</span>
                       </div>
@@ -1073,30 +1207,31 @@ export default function MarketsPage() {
                           className="text-white/70 text-sm font-bold"
                           style={{ fontFamily: "var(--font-space-mono)" }}
                         >
-                          {estPayout.toFixed(6)}{" "}
+                          {fmt(estPayout)}{" "}
                           <span className="text-white/20 font-normal text-xs">
                             CBTC
                           </span>
                         </p>
                       </div>
-                      <div>
-                        <p
-                          className="text-white/20 text-[10px] uppercase tracking-wider mb-0.5"
-                          style={{ fontFamily: "var(--font-space-mono)" }}
-                        >
-                          Est. Profit
-                        </p>
-                        <p
-                          className={clsx(
-                            "text-sm font-bold",
-                            estProfit >= 0 ? "text-green-400" : "text-red-400"
-                          )}
-                          style={{ fontFamily: "var(--font-space-mono)" }}
-                        >
-                          {estProfit >= 0 ? "+" : ""}
-                          {estProfit.toFixed(6)}
-                        </p>
-                      </div>
+                      {!myBetNoCounterparty && (
+                        <div>
+                          <p
+                            className="text-white/20 text-[10px] uppercase tracking-wider mb-0.5"
+                            style={{ fontFamily: "var(--font-space-mono)" }}
+                          >
+                            Est. Gain
+                          </p>
+                          <p
+                            className={clsx(
+                              "text-sm font-bold",
+                              estProfit >= 0 ? "text-green-400" : "text-red-400"
+                            )}
+                            style={{ fontFamily: "var(--font-space-mono)" }}
+                          >
+                            {fmtSigned(estProfit)}
+                          </p>
+                        </div>
+                      )}
                     </div>
                     <p className="text-white/10 text-[10px] mt-2">
                       Live estimate after 5% fee · updates as more bets come in
@@ -1184,7 +1319,7 @@ export default function MarketsPage() {
                           className="text-green-400 text-sm font-bold"
                           style={{ fontFamily: "var(--font-space-mono)" }}
                         >
-                          {liveMarket.totalUp.toFixed(6)}
+                          {fmt(liveMarket.totalUp)}
                         </p>
                         <p className="text-green-400/40 text-[10px]">CBTC</p>
                       </div>
@@ -1205,7 +1340,7 @@ export default function MarketsPage() {
                           className="text-white/70 text-sm font-bold"
                           style={{ fontFamily: "var(--font-space-mono)" }}
                         >
-                          {totalPool.toFixed(6)}
+                          {fmt(totalPool)}
                         </p>
                         <p className="text-white/20 text-[10px]">CBTC</p>
                       </div>
@@ -1226,7 +1361,7 @@ export default function MarketsPage() {
                           className="text-red-400 text-sm font-bold"
                           style={{ fontFamily: "var(--font-space-mono)" }}
                         >
-                          {liveMarket.totalDown.toFixed(6)}
+                          {fmt(liveMarket.totalDown)}
                         </p>
                         <p className="text-red-400/40 text-[10px]">CBTC</p>
                       </div>
@@ -1412,12 +1547,12 @@ export default function MarketsPage() {
                                 )}
                               >
                                 {won
-                                  ? `WON +${myb.payout?.toFixed(6)}`
+                                  ? `WON +${fmt(myb.payout ?? 0)}`
                                   : lost
-                                    ? `LOST ${myb.amount.toFixed(6)}`
+                                    ? `LOST ${fmt(myb.amount)}`
                                     : refunded
-                                      ? `REFUNDED ${myb.amount.toFixed(6)}`
-                                      : `${myb.amount.toFixed(6)} CBTC`}
+                                      ? `REFUNDED ${fmt(myb.amount)}`
+                                      : `${fmt(myb.amount)} CBTC`}
                               </span>
                             )}
                             <span
@@ -1438,6 +1573,9 @@ export default function MarketsPage() {
           </motion.div>
         )}
       </div>
+
+      {/* Win/loss toasts */}
+      <ToastContainer toasts={toasts} onDismiss={dismissToast} />
     </div>
   );
 }
