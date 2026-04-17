@@ -4,7 +4,7 @@ import { useEffect, useState, useCallback } from "react";
 import { motion } from "framer-motion";
 import {
   Bitcoin, TrendingUp, TrendingDown, CheckCircle, XCircle,
-  Clock, RotateCcw, ArrowDownToLine, ArrowUpFromLine, Wallet, BarChart3, ChevronDown, ChevronUp,
+  Clock, RotateCcw, ArrowDownToLine, ArrowUpFromLine, Wallet, BarChart3, ChevronDown, ChevronUp, Trophy,
 } from "lucide-react";
 import { fmt, fmtSigned } from "@/lib/format";
 import { useWalletStore } from "@/store/wallet-store";
@@ -16,8 +16,10 @@ import WithdrawModal from "@/components/wallet/WithdrawModal";
 
 type Tx = {
   id: string;
-  type: "deposit" | "withdrawal";
+  type: "deposit" | "withdrawal" | "bet" | "payout" | "refund";
   amount: number;
+  description?: string | null;
+  direction?: string;
   status: string;
   txId: string | null;
   createdAt: string;
@@ -253,23 +255,7 @@ export default function PortfolioPage() {
                         <Bitcoin className="w-3 h-3 text-[#28cc95]/60" />
                         <span className="text-white font-bold text-sm" style={{ fontFamily: "var(--font-space-mono)" }}>{fmt(bet.amount)}</span>
                       </div>
-                      {isWon && bet.payout != null && (
-                        <div className="mt-0.5 text-right">
-                          <p className="text-green-400 text-xs font-bold" style={{ fontFamily: "var(--font-space-mono)" }}>
-                            payout {fmt(bet.payout)}
-                          </p>
-                          <p className="text-green-400/60 text-[11px]" style={{ fontFamily: "var(--font-space-mono)" }}>
-                            +{fmt(bet.payout - bet.amount)} profit
-                          </p>
-                        </div>
-                      )}
-                      {isLost && <p className="text-red-400/50 text-xs mt-0.5">lost</p>}
                       {bet.status === "PENDING" && <p className="text-[#28cc95]/50 text-xs mt-0.5">pending</p>}
-                      {isRefund && bet.payout != null && (
-                        <p className="text-blue-400/60 text-xs font-bold mt-0.5" style={{ fontFamily: "var(--font-space-mono)" }}>
-                          refunded {fmt(bet.payout)}
-                        </p>
-                      )}
                     </div>
                   </motion.div>
                 );
@@ -292,43 +278,51 @@ export default function PortfolioPage() {
             {txOpen && (
               <div className="space-y-2">
                 {txs.map((tx) => {
-                  const isDeposit = tx.type === "deposit";
                   const isPending = tx.status === "PENDING";
-                  const isConfirmed = tx.status === "CONFIRMED" || tx.status === "COMPLETED";
+
+                  // Per-type config
+                  const config = {
+                    deposit:    { label: "Deposit",    sign: "+", color: "text-[#5dd9ab]",    iconBg: "rgba(40,204,149,0.1)",   border: "rgba(40,204,149,0.10)",   bg: "rgba(40,204,149,0.03)",   icon: <ArrowDownToLine className="w-4 h-4 text-[#28cc95]" /> },
+                    withdrawal: { label: "Withdrawal", sign: "−", color: "text-violet-300",   iconBg: "rgba(139,92,246,0.1)",   border: "rgba(139,92,246,0.10)",   bg: "rgba(139,92,246,0.03)",   icon: <ArrowUpFromLine className="w-4 h-4 text-violet-400" /> },
+                    bet:        { label: "Bet",        sign: "−", color: "text-red-400",      iconBg: "rgba(239,68,68,0.08)",   border: "rgba(239,68,68,0.08)",    bg: "rgba(239,68,68,0.02)",    icon: <TrendingUp className="w-4 h-4 text-red-400" /> },
+                    payout:     { label: "Payout",     sign: "+", color: "text-green-400",    iconBg: "rgba(34,197,94,0.1)",    border: "rgba(34,197,94,0.10)",    bg: "rgba(34,197,94,0.02)",    icon: <Trophy className="w-4 h-4 text-green-400" /> },
+                    refund:     { label: "Refund",     sign: "+", color: "text-blue-400",     iconBg: "rgba(59,130,246,0.1)",   border: "rgba(59,130,246,0.08)",   bg: "rgba(59,130,246,0.02)",   icon: <RotateCcw className="w-4 h-4 text-blue-400" /> },
+                  }[tx.type];
+
                   return (
                     <div
                       key={tx.id}
                       className="flex items-center justify-between p-4 rounded-2xl"
-                      style={{
-                        background: isDeposit ? "rgba(40,204,149,0.03)" : "rgba(139,92,246,0.03)",
-                        border: isDeposit ? "1px solid rgba(40,204,149,0.10)" : "1px solid rgba(139,92,246,0.10)",
-                      }}
+                      style={{ background: config.bg, border: `1px solid ${config.border}` }}
                     >
-                      <div className="flex items-center gap-3">
-                        <div className="w-9 h-9 rounded-xl flex items-center justify-center shrink-0"
-                          style={{ background: isDeposit ? "rgba(40,204,149,0.1)" : "rgba(139,92,246,0.1)" }}>
-                          {isDeposit
-                            ? <ArrowDownToLine className="w-4 h-4 text-[#28cc95]" />
-                            : <ArrowUpFromLine className="w-4 h-4 text-violet-400" />}
+                      <div className="flex items-center gap-3 min-w-0">
+                        <div className="w-9 h-9 rounded-xl flex items-center justify-center shrink-0" style={{ background: config.iconBg }}>
+                          {config.icon}
                         </div>
-                        <div>
-                          <p className="text-white/70 text-sm font-semibold capitalize" style={{ fontFamily: "var(--font-syne)" }}>
-                            {tx.type}
-                          </p>
-                          <p className="text-white/25 text-[11px]" style={{ fontFamily: "var(--font-space-mono)" }}>
+                        <div className="min-w-0">
+                          <div className="flex items-center gap-2">
+                            <p className="text-white/70 text-sm font-semibold" style={{ fontFamily: "var(--font-syne)" }}>
+                              {config.label}
+                            </p>
+                            {tx.direction && (
+                              <span className={clsx("text-[10px] font-bold px-1.5 py-0.5 rounded-md flex items-center gap-0.5",
+                                tx.direction === "UP" ? "text-green-400 bg-green-500/10" : "text-red-400 bg-red-500/10"
+                              )}>
+                                {tx.direction === "UP" ? <TrendingUp className="w-2.5 h-2.5" /> : <TrendingDown className="w-2.5 h-2.5" />}
+                                {tx.direction}
+                              </span>
+                            )}
+                          </div>
+                          <p className="text-white/20 text-[11px]" style={{ fontFamily: "var(--font-space-mono)" }}>
                             {format(new Date(tx.createdAt), "MMM d, HH:mm")}
-                            {isPending && <span className="ml-2 text-amber-400/60">· pending</span>}
-                            {isConfirmed && <span className="ml-2 text-[#28cc95]/50">· confirmed</span>}
+                            {isPending && <span className="ml-1.5 text-amber-400/60">· pending</span>}
                           </p>
                         </div>
                       </div>
-                      <div className="flex items-center gap-1.5 text-right">
+                      <div className="flex items-center gap-1.5 shrink-0 ml-3">
                         <Bitcoin className="w-3 h-3 text-[#28cc95]/50" />
-                        <span
-                          className={clsx("font-bold text-sm", isDeposit ? "text-[#5dd9ab]" : "text-violet-300")}
-                          style={{ fontFamily: "var(--font-space-mono)" }}
-                        >
-                          {isDeposit ? "+" : "−"}{fmt(tx.amount)}
+                        <span className={clsx("font-bold text-sm", config.color)} style={{ fontFamily: "var(--font-space-mono)" }}>
+                          {config.sign}{fmt(tx.amount)}
                         </span>
                       </div>
                     </div>
