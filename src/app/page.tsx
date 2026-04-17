@@ -78,6 +78,7 @@ export default function MarketsPage() {
     Array<{
       id: string;
       direction: string;
+      amount: number;
       status: string;
       placedAt: string;
       maskedId: string;
@@ -1233,9 +1234,9 @@ export default function MarketsPage() {
                         </div>
                       )}
                     </div>
-                    <p className="text-white/10 text-[10px] mt-2">
+                    {/*  <p className="text-white/10 text-[10px] mt-2">
                       Live estimate after 5% fee · updates as more bets come in
-                    </p>
+                    </p> */}
                   </motion.div>
                 );
               })()}
@@ -1403,25 +1404,22 @@ export default function MarketsPage() {
                             {bet.maskedId}
                           </span>
                           <div className="flex items-center gap-3">
+                            {/* Amount */}
+                            <span className="text-white/40 text-xs font-semibold" style={{ fontFamily: "var(--font-space-mono)" }}>
+                              {fmt(bet.amount)} CBTC
+                            </span>
                             {/* Direction badge */}
                             <span
                               className="text-[10px] font-bold px-2 py-0.5 rounded-lg flex items-center gap-1"
                               style={{
-                                background: isUp
-                                  ? "rgba(34,197,94,0.1)"
-                                  : "rgba(239,68,68,0.1)",
+                                background: isUp ? "rgba(34,197,94,0.1)" : "rgba(239,68,68,0.1)",
                                 color: isUp ? "#4ade80" : "#f87171",
                                 border: `1px solid ${isUp ? "rgba(34,197,94,0.2)" : "rgba(239,68,68,0.2)"}`
                               }}
                             >
-                              {isUp ? (
-                                <TrendingUp className="w-2.5 h-2.5" />
-                              ) : (
-                                <TrendingDown className="w-2.5 h-2.5" />
-                              )}
+                              {isUp ? <TrendingUp className="w-2.5 h-2.5" /> : <TrendingDown className="w-2.5 h-2.5" />}
                               {bet.direction}
                             </span>
-                            {/* Amount hidden — individual bets are private */}
                           </div>
                         </div>
                       );

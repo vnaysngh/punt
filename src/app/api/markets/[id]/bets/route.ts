@@ -48,8 +48,7 @@ export async function GET(
     const masked = page.map((b: (typeof bets)[number]) => ({
       id:        b.id,
       direction: b.direction,
-      // Do NOT expose individual bet amounts publicly — only aggregate totals
-      // are available on the market object (totalUp / totalDown)
+      amount:    b.amount.toNumber(),
       status:    b.status,
       placedAt:  b.placedAt,
       maskedId:  `${b.user.partyId.slice(0, 6)}…${b.user.partyId.slice(-4)}`,

@@ -254,13 +254,22 @@ export default function PortfolioPage() {
                         <span className="text-white font-bold text-sm" style={{ fontFamily: "var(--font-space-mono)" }}>{fmt(bet.amount)}</span>
                       </div>
                       {isWon && bet.payout != null && (
-                        <p className="text-green-400 text-xs font-bold mt-0.5" style={{ fontFamily: "var(--font-space-mono)" }}>
-                          +{fmt(bet.payout - bet.amount)}
-                        </p>
+                        <div className="mt-0.5 text-right">
+                          <p className="text-green-400 text-xs font-bold" style={{ fontFamily: "var(--font-space-mono)" }}>
+                            payout {fmt(bet.payout)}
+                          </p>
+                          <p className="text-green-400/60 text-[11px]" style={{ fontFamily: "var(--font-space-mono)" }}>
+                            +{fmt(bet.payout - bet.amount)} profit
+                          </p>
+                        </div>
                       )}
                       {isLost && <p className="text-red-400/50 text-xs mt-0.5">lost</p>}
                       {bet.status === "PENDING" && <p className="text-[#28cc95]/50 text-xs mt-0.5">pending</p>}
-                      {isRefund && <p className="text-blue-400/50 text-xs mt-0.5">refunded</p>}
+                      {isRefund && bet.payout != null && (
+                        <p className="text-blue-400/60 text-xs font-bold mt-0.5" style={{ fontFamily: "var(--font-space-mono)" }}>
+                          refunded {fmt(bet.payout)}
+                        </p>
+                      )}
                     </div>
                   </motion.div>
                 );
