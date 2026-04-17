@@ -87,9 +87,14 @@ export async function POST(req: NextRequest) {
     while (Date.now() < deadline) {
       const pending = await getPendingTransferInstructions();
 
-      // Fast path: client supplied the contractId directly from SDK response
+      // Fast path: client supplied the contractId directly from SDK response.
+      // Still verify senderPartyId matches the authenticated user — contractId alone
+      // is not enough because a different user could theoretically supply someone
+      // else's contractId and claim their deposit.
       if (transferInstructionCid && typeof transferInstructionCid === "string") {
-        matchedTx = pending.find((t) => t.contractId === transferInstructionCid) ?? null;
+        matchedTx = pending.find(
+          (t) => t.contractId === transferInstructionCid && t.senderPartyId === partyId
+        ) ?? null;
       }
 
       // Fallback: match by memo + sender + amount

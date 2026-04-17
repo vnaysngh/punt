@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useRef } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { X, Bitcoin, Loader2, CheckCircle2, AlertCircle, Info } from "lucide-react";
 import { fmt } from "@/lib/format";
@@ -11,7 +11,7 @@ import clsx from "clsx";
 import type { Variants } from "framer-motion";
 
 type Props = { open: boolean; onClose: () => void };
-type Step = "input" | "confirming" | "success" | "error";
+type Step = "input" | "confirming" | "success" | "error" | "timeout";
 
 const QUICK = [0.001, 0.005, 0.01, 0.05];
 
@@ -26,9 +26,12 @@ export default function DepositModal({ open, onClose }: Props) {
   const [step, setStep] = useState<Step>("input");
   const [error, setError] = useState<string | null>(null);
   const [txId, setTxId] = useState<string | null>(null);
+  // Preserved after a timeout so retry can re-poll without a second wallet transfer
+  const pendingMemoRef = useRef<string | null>(null);
+  const pendingCidRef = useRef<string | null>(null);
   const { partyId, walletType, setAppBalance, sessionToken } = useWalletStore();
 
-  const reset = () => { setAmount(""); setStep("input"); setError(null); setTxId(null); };
+  const reset = () => { setAmount(""); setStep("input"); setError(null); setTxId(null); pendingMemoRef.current = null; pendingCidRef.current = null; };
   const handleClose = () => { reset(); onClose(); };
 
   const parsed = parseFloat(amount);
@@ -84,6 +87,10 @@ export default function DepositModal({ open, onClose }: Props) {
         });
       }
 
+      // Store memo + cid so a timeout retry can re-poll without re-triggering the wallet
+      pendingMemoRef.current = memo;
+      pendingCidRef.current = transferInstructionCid;
+
       // Tell server to find and accept the TransferInstruction on-chain
       // Server verifies: memo matches, senderPartyId === authenticated user, amount >= expected
       const res = await fetch("/api/deposit", {
@@ -105,8 +112,44 @@ export default function DepositModal({ open, onClose }: Props) {
 
     } catch (err) {
       console.error("[Deposit] failed:", err);
-      setError(err instanceof Error ? err.message : String(err) ?? "Deposit failed. Please try again.");
-      setStep("error");
+      const msg = err instanceof Error ? err.message : String(err) ?? "Deposit failed. Please try again.";
+      // Distinguish timeout/not-found from hard errors so we can offer a retry
+      if (msg.toLowerCase().includes("not found") || msg.toLowerCase().includes("still pending")) {
+        setStep("timeout");
+      } else {
+        setError(msg);
+        setStep("error");
+      }
+    }
+  };
+
+  // Re-poll the server with the original memo — the wallet transfer already happened,
+  // we just need to wait for the on-chain confirmation to appear.
+  const handleRetry = async () => {
+    if (!sessionToken || !pendingMemoRef.current) return;
+    setStep("confirming");
+    try {
+      const res = await fetch("/api/deposit", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "Authorization": `Bearer ${sessionToken}` },
+        body: JSON.stringify({ amount: parsed, memo: pendingMemoRef.current, transferInstructionCid: pendingCidRef.current }),
+      });
+      if (!res.ok) {
+        const d = await res.json();
+        throw new Error(d.error ?? "Deposit failed");
+      }
+      const data = await res.json();
+      setAppBalance(data.appBalance);
+      setTxId(pendingMemoRef.current);
+      setStep("success");
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "Deposit failed. Please try again.";
+      if (msg.toLowerCase().includes("not found") || msg.toLowerCase().includes("still pending")) {
+        setStep("timeout");
+      } else {
+        setError(msg);
+        setStep("error");
+      }
     }
   };
 
@@ -264,6 +307,33 @@ export default function DepositModal({ open, onClose }: Props) {
                     >
                       Start Betting
                     </button>
+                  </motion.div>
+                )}
+
+                {/* ── Timeout (transfer not yet on-chain) ── */}
+                {step === "timeout" && (
+                  <motion.div key="timeout" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="flex flex-col items-center gap-5 py-8">
+                    <div className="w-20 h-20 rounded-3xl flex items-center justify-center" style={{ background: "rgba(251,191,36,0.07)", border: "1px solid rgba(251,191,36,0.2)" }}>
+                      <AlertCircle className="w-9 h-9 text-amber-400" />
+                    </div>
+                    <div className="text-center">
+                      <p className="text-white font-semibold" style={{ fontFamily: "var(--font-syne)" }}>Transfer Still Pending</p>
+                      <p className="text-white/40 text-sm mt-1.5 max-w-[280px] leading-relaxed">
+                        The on-chain transfer wasn&apos;t confirmed within 30s. Your CBTC wasn&apos;t deducted — wait a moment and retry.
+                      </p>
+                    </div>
+                    <div className="flex items-center gap-3">
+                      <button
+                        onClick={handleRetry}
+                        className="px-6 py-2.5 rounded-xl font-semibold text-black text-sm transition-all hover:opacity-90"
+                        style={{ background: "linear-gradient(135deg, #28cc95, #1fa876)", fontFamily: "var(--font-syne)" }}
+                      >
+                        Retry Deposit
+                      </button>
+                      <button onClick={reset} className="px-5 py-2.5 rounded-xl border border-white/[0.1] hover:border-white/[0.18] text-white/50 hover:text-white text-sm font-medium transition-all">
+                        Cancel
+                      </button>
+                    </div>
                   </motion.div>
                 )}
 

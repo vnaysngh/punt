@@ -191,9 +191,18 @@ export default function PortfolioPage() {
         <div>
           <h2 className="text-white font-bold text-xl mb-4" style={{ fontFamily: "var(--font-syne)" }}>Bet History</h2>
 
-          {loading ? (
+          {loading && myBets.length === 0 ? (
             <div className="space-y-3">
-              {[...Array(4)].map((_, i) => <div key={i} className="h-20 rounded-2xl skeleton" style={{ border: "1px solid rgba(255,255,255,0.05)" }} />)}
+              {[...Array(4)].map((_, i) => (
+                <div key={i} className="flex items-center gap-3 p-4 rounded-2xl" style={{ background: "rgba(255,255,255,0.02)", border: "1px solid rgba(255,255,255,0.05)" }}>
+                  <div className="w-10 h-10 rounded-xl skeleton shrink-0" />
+                  <div className="flex-1 space-y-2">
+                    <div className="h-3.5 rounded-lg skeleton w-3/4" />
+                    <div className="h-2.5 rounded-lg skeleton w-1/3" />
+                  </div>
+                  <div className="w-16 h-4 rounded-lg skeleton shrink-0" />
+                </div>
+              ))}
             </div>
           ) : myBets.length === 0 ? (
             <div className="flex flex-col items-center py-20 text-center">

@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { requireAuth } from "@/lib/api-auth";
-import { sendTransfer } from "@/lib/canton";
+import { sendTransfer, getAppWalletBalance } from "@/lib/canton";
 import { consumeChallengeForParty } from "@/app/api/auth/challenge/route";
 import forge from "node-forge";
 
@@ -156,6 +156,26 @@ export async function POST(req: NextRequest) {
       // Pre-check balance (fail fast — real guard is the atomic deduct below)
       if (user.appBalance.toNumber() < amount) {
         return NextResponse.json({ error: "Insufficient balance" }, { status: 400 });
+      }
+
+      // --- Pre-flight: verify app master wallet has enough CBTC to cover this withdrawal ---
+      // We check BEFORE deducting the user's balance so we never end up in a state where
+      // the user's balance is gone but the transfer can't happen. If the balance check itself
+      // fails (Canton API down), we get -1 and log a warning but allow the withdrawal to
+      // proceed — the on-chain transfer will fail at Step 2 with a clean rollback anyway.
+      const appWalletBalance = await getAppWalletBalance();
+      if (appWalletBalance !== -1 && appWalletBalance < amount) {
+        console.error(
+          `[withdraw] INSUFFICIENT_APP_WALLET_FUNDS — requested=${amount} CBTC available=${appWalletBalance} CBTC ` +
+          `userId=${user.id} partyId=${partyId}. Top up the master wallet immediately.`
+        );
+        return NextResponse.json(
+          { error: "Withdrawals are temporarily unavailable. Please try again shortly or contact support." },
+          { status: 503 }
+        );
+      }
+      if (appWalletBalance !== -1) {
+        console.log(`[withdraw] Pre-flight: app wallet has ${appWalletBalance} CBTC, requested ${amount} CBTC`);
       }
 
       // --- Step 1: Atomically deduct balance + create PENDING withdrawal record ---

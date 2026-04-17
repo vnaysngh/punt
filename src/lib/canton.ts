@@ -57,6 +57,7 @@ export interface PendingTransferInstruction {
   amount: string;
   memo: string;
   provider: string;
+  expired: boolean;
 }
 
 const TRANSFER_INSTRUCTION_INTERFACE_ID =
@@ -65,8 +66,12 @@ const TRANSFER_INSTRUCTION_INTERFACE_ID =
 /**
  * Fetch all pending TransferInstructions where the app wallet is the receiver.
  * READ-ONLY — no signing.
+ *
+ * @param includeExpired - If true, also returns expired instructions (for alerting).
+ *   The cron uses this to detect unrecoverable deposits (expired before acceptance).
+ *   The normal deposit flow should never pass true — expired instructions cannot be accepted.
  */
-export async function getPendingTransferInstructions(): Promise<PendingTransferInstruction[]> {
+export async function getPendingTransferInstructions(includeExpired = false): Promise<PendingTransferInstruction[]> {
   await initLoopServer();
   const loop = await getLoop();
 
@@ -106,7 +111,41 @@ export async function getPendingTransferInstructions(): Promise<PendingTransferI
 
       return { contractId, senderPartyId, receiverPartyId, amount, memo, provider, expired };
     })
-    .filter((t) => t.contractId && t.senderPartyId && t.provider && !t.expired);
+    .filter((t) => t.contractId && t.senderPartyId && t.provider && (includeExpired || !t.expired));
+}
+
+/**
+ * Get the app wallet's current CBTC balance.
+ * Used as a pre-flight check before initiating a withdrawal to fail fast
+ * instead of deducting user balance and then discovering the master wallet is empty.
+ */
+export async function getAppWalletBalance(): Promise<number> {
+  await initLoopServer();
+  const loop = await getLoop();
+
+  const instrumentId = process.env.NEXT_PUBLIC_CBTC_INSTRUMENT_ID;
+  const instrumentAdmin = process.env.NEXT_PUBLIC_CBTC_INSTRUMENT_ADMIN;
+  if (!instrumentId || !instrumentAdmin) {
+    throw new Error("Missing CBTC instrument env vars");
+  }
+
+  try {
+    const provider = loop.getProvider();
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const holdings: any = await provider.getHoldings({
+      instrument: { instrument_id: instrumentId, instrument_admin: instrumentAdmin },
+    });
+    // holdings is typically { amount: "0.05", ... } or an array
+    const raw = Array.isArray(holdings) ? holdings : [holdings];
+    const total = raw.reduce((sum: number, h: { amount?: string }) => {
+      return sum + parseFloat(h?.amount ?? "0");
+    }, 0);
+    return isFinite(total) ? total : 0;
+  } catch (err) {
+    console.warn("[Canton] Could not fetch app wallet balance:", err);
+    // Return -1 to signal unknown — caller decides whether to proceed
+    return -1;
+  }
 }
 
 /**

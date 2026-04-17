@@ -60,11 +60,19 @@ export default function MarketsPage() {
   const [step, setStep] = useState<BetStep>("input");
   const [betError, setBetError] = useState<string | null>(null);
   const [timerExpired, setTimerExpired] = useState(false);
-  const [historyOpen, setHistoryOpen] = useState(false);
+  const [historyOpen, setHistoryOpen] = useState(() => {
+    if (typeof window !== "undefined") {
+      return sessionStorage.getItem("historyOpen") === "1";
+    }
+    return false;
+  });
   const [totalRoundCount, setTotalRoundCount] = useState(0);
   const [submitting, setSubmitting] = useState(false);
   const [toasts, setToasts] = useState<ToastData[]>([]);
   const prevMyBetsRef = useRef<Bet[]>([]);
+  const [poolFreshAt, setPoolFreshAt] = useState<number>(Date.now());
+  const [historyPage, setHistoryPage] = useState(10); // how many settled markets to show
+  const HISTORY_PAGE_SIZE = 10;
 
   const addToast = useCallback((toast: Omit<ToastData, "id">) => {
     const id = Math.random().toString(36).slice(2);
@@ -209,6 +217,11 @@ export default function MarketsPage() {
     setTimerExpired(false);
   }, [liveMarket?.id]);
 
+  // Track when pool data was last refreshed (markets poll every 30s)
+  useEffect(() => {
+    if (liveMarket) setPoolFreshAt(Date.now());
+  }, [liveMarket?.totalUp, liveMarket?.totalDown]);
+
   // Detect win/loss/refund when a previously PENDING bet gets settled
   useEffect(() => {
     const prev = prevMyBetsRef.current;
@@ -289,6 +302,9 @@ export default function MarketsPage() {
       ? (parsed / winningPool) * adjustedPool
       : 0;
   const profit = potentialPayout - (isValid && !noCounterparty ? parsed : 0);
+
+  // Warn if odds data is >3min old while user has a valid bet ready
+  const poolIsStale = isValid && (now - poolFreshAt) > 3 * 60 * 1000;
 
   const myBet = liveMarket ? myBetMap[liveMarket.id] : null;
   const isOpen = liveMarket?.status === "OPEN" && !timerExpired;
@@ -881,7 +897,7 @@ export default function MarketsPage() {
                             className="rounded-xl p-3.5 space-y-2"
                             style={{
                               background: "rgba(255,255,255,0.02)",
-                              border: "1px solid rgba(255,255,255,0.05)"
+                              border: poolIsStale ? "1px solid rgba(251,191,36,0.25)" : "1px solid rgba(255,255,255,0.05)"
                             }}
                           >
                             <div className="flex justify-between text-sm">
@@ -915,10 +931,11 @@ export default function MarketsPage() {
                                 </span>
                               </div>
                             )}
-                            {/* <p className="text-white/15 text-[10px]">
-                              Estimate after 5% platform fee. Final payout
-                              depends on pool at close.
-                            </p> */}
+                            {poolIsStale && (
+                              <p className="text-amber-400/70 text-[10px] flex items-center gap-1">
+                                <span>⚠</span> Odds may have shifted — pool data is over 3 min old
+                              </p>
+                            )}
                           </motion.div>
                         )}
 
@@ -1440,7 +1457,11 @@ export default function MarketsPage() {
             className="mt-10"
           >
             <button
-              onClick={() => setHistoryOpen(!historyOpen)}
+              onClick={() => {
+                const next = !historyOpen;
+                setHistoryOpen(next);
+                sessionStorage.setItem("historyOpen", next ? "1" : "0");
+              }}
               className="flex items-center gap-2 text-white/30 hover:text-white/60 text-sm font-semibold mb-4 transition-colors"
               style={{ fontFamily: "var(--font-syne)" }}
             >
@@ -1465,7 +1486,7 @@ export default function MarketsPage() {
                   className="overflow-hidden"
                 >
                   <div className="space-y-2">
-                    {settledMarkets.map((m: Market) => {
+                    {settledMarkets.slice(0, historyPage).map((m: Market) => {
                       const priceChange =
                         m.closePrice != null
                           ? m.closePrice - m.startPrice
@@ -1564,6 +1585,15 @@ export default function MarketsPage() {
                         </div>
                       );
                     })}
+                    {settledMarkets.length > historyPage && (
+                      <button
+                        onClick={() => setHistoryPage((p) => p + HISTORY_PAGE_SIZE)}
+                        className="w-full py-2.5 rounded-xl text-white/30 hover:text-white/60 text-sm font-semibold transition-colors text-center"
+                        style={{ background: "rgba(255,255,255,0.02)", border: "1px solid rgba(255,255,255,0.05)", fontFamily: "var(--font-syne)" }}
+                      >
+                        Show {Math.min(HISTORY_PAGE_SIZE, settledMarkets.length - historyPage)} more rounds
+                      </button>
+                    )}
                   </div>
                 </motion.div>
               )}

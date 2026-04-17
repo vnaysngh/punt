@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useRef } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { X, Bitcoin, Loader2, CheckCircle2, AlertCircle, ArrowUpFromLine } from "lucide-react";
 import { fmt } from "@/lib/format";
@@ -24,9 +24,11 @@ export default function WithdrawModal({ open, onClose }: Props) {
   const [error, setError] = useState<string | null>(null);
   const [txId, setTxId] = useState<string | null>(null);
   const { appBalance, setAppBalance, sessionToken, partyId } = useWalletStore();
+  // Tracks whether the user cancelled while the signature popup was in-flight
+  const abortedRef = useRef(false);
 
-  const reset = () => { setAmount(""); setStep("input"); setError(null); setTxId(null); };
-  const handleClose = () => { reset(); onClose(); };
+  const reset = () => { setAmount(""); setStep("input"); setError(null); setTxId(null); abortedRef.current = false; };
+  const handleClose = () => { abortedRef.current = true; reset(); onClose(); };
 
   const parsed = parseFloat(amount);
   const isValid = !isNaN(parsed) && parsed > 0 && parsed <= appBalance;
@@ -43,6 +45,7 @@ export default function WithdrawModal({ open, onClose }: Props) {
     // first call, so any second call (double-click, React re-render) hits this check
     // and exits before touching the network.
     if (!isValid || !sessionToken || !partyId || step === "processing") return;
+    abortedRef.current = false;
     setStep("processing");
     setError(null);
 
@@ -57,6 +60,9 @@ export default function WithdrawModal({ open, onClose }: Props) {
       // Step 2: sign challenge with Loop wallet private key
       // This triggers the "Signature Request" popup — proves wallet ownership
       const signature = await signMessage(challenge);
+
+      // If user cancelled the modal while the signature popup was open, bail out silently
+      if (abortedRef.current) return;
 
       // Step 3: submit withdrawal with challenge + signature
       const res = await fetch("/api/withdraw", {
@@ -75,6 +81,7 @@ export default function WithdrawModal({ open, onClose }: Props) {
       setTxId(data.txId ?? null);
       setStep("success");
     } catch (err) {
+      if (abortedRef.current) return; // user cancelled — don't update closed modal
       setError(err instanceof Error ? err.message : "Withdrawal failed. Please try again.");
       setStep("error");
     }
