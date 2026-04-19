@@ -240,14 +240,18 @@ export async function acceptTransferInstruction(
 
   if (!providerPartyId) throw new Error("Missing providerPartyId");
 
-  const loopApiBase =
+  // Use the SDK's own connection URL — it already knows the correct host for the
+  // configured network (mainnet → https://cantonloop.com, devnet → https://devnet.cantonloop.com).
+  // Fallback chain: explicit env var → SDK connection → network-based default.
+  const loopApiBase: string =
     process.env.LOOP_API_URL ??
+    (loop.connection?.apiUrl as string | undefined) ??
     (process.env.NEXT_PUBLIC_LOOP_NETWORK === "mainnet"
-      ? "https://canton.network"
+      ? "https://cantonloop.com"
       : "https://devnet.cantonloop.com");
+  console.log(`[Canton] acceptTransferInstruction — loopApiBase=${loopApiBase}`);
 
   const signer = loop.getSigner();
-  const userApiKey = loop.session?.userApiKey;
 
   // Pre-flight gas check
   try {
@@ -259,16 +263,50 @@ export async function acceptTransferInstruction(
     console.warn("[Canton] Pre-flight gas check failed (non-fatal)");
   }
 
-  // Step 1: get unsigned transaction hash
+  // Helper: force re-auth and return fresh API key.
+  // Always re-authenticates — do NOT short-circuit on cached key.
+  const reAuth = async (): Promise<string> => {
+    console.warn("[Canton] Re-authenticating to refresh userApiKey");
+    _authenticated = false;
+    // Re-fetch loop instance after resetting — initLoopServer re-calls loop.authenticate()
+    await initLoopServer();
+    const freshLoop = await getLoop();
+    const fresh = freshLoop?.session?.userApiKey;
+    console.log(`[Canton] Re-auth complete — new apiKeyPrefix: ${fresh?.slice(0, 8) ?? "MISSING"}`);
+    if (!fresh) throw new Error("Canton re-authentication failed — no userApiKey after re-auth");
+    return fresh;
+  };
+
+  // Get current API key — re-auth if missing
+  let apiKey: string = loop.session?.userApiKey ?? "";
+  if (!apiKey) {
+    console.warn("[Canton] userApiKey missing before first attempt — re-authenticating");
+    apiKey = await reAuth();
+  }
+
+  // Step 1: get unsigned transaction hash — retry once on 403 (expired session)
   const acceptUrl = `${loopApiBase}/api/v1/token-standard/transfer-instructions/${encodeURIComponent(providerPartyId)}/${encodeURIComponent(contractId)}/accept`;
-  const acceptRes = await fetch(acceptUrl, {
+  console.log(`[Canton] Attempting accept — contractId=${contractId.slice(0, 16)}… apiKeyPrefix=${apiKey.slice(0, 8)}`);
+  let acceptRes = await fetch(acceptUrl, {
     method: "POST",
-    headers: { Authorization: `Bearer ${userApiKey}`, "Content-Type": "application/json" },
+    headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
     body: JSON.stringify({}),
   });
+  if (acceptRes.status === 403) {
+    // Session expired — force full re-auth (ignore any cached key) and retry once
+    console.warn("[Canton] 403 on accept — session expired, forcing re-auth");
+    apiKey = await reAuth();
+    console.log(`[Canton] Retrying accept with fresh apiKeyPrefix=${apiKey.slice(0, 8)}`);
+    acceptRes = await fetch(acceptUrl, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
+      body: JSON.stringify({}),
+    });
+  }
   if (!acceptRes.ok) {
-    const err = await acceptRes.text();
-    throw new Error(`accept failed: ${acceptRes.status} ${err}`);
+    const errText = await acceptRes.text();
+    console.error(`[Canton] accept failed: ${acceptRes.status} — url=${acceptUrl} providerPartyId=${providerPartyId} contractId=${contractId} apiKeyPrefix=${apiKey?.slice(0,8)} body=${errText}`);
+    throw new Error(`accept failed: ${acceptRes.status} ${errText}`);
   }
   const { transaction_hash } = await acceptRes.json() as { transaction_hash: string };
   if (!transaction_hash) throw new Error("No transaction_hash in accept response");
@@ -280,7 +318,7 @@ export async function acceptTransferInstruction(
   const executeUrl = `${loopApiBase}/api/v1/token-standard/transfer-instructions/execute`;
   const executeRes = await fetch(executeUrl, {
     method: "POST",
-    headers: { Authorization: `Bearer ${userApiKey}`, "Content-Type": "application/json" },
+    headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
     body: JSON.stringify({ signature, transaction_hash }),
   });
   if (!executeRes.ok) {

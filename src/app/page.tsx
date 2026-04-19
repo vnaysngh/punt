@@ -46,7 +46,8 @@ export default function MarketsPage() {
     appBalance,
     setAppBalance,
     sessionToken,
-    requestConnect
+    requestConnect,
+    handleSessionExpired,
   } = useWalletStore();
   const connectLoop = requestConnect;
   const connectingLoop = false;
@@ -131,6 +132,10 @@ export default function MarketsPage() {
           fetch("/api/users", { headers: authHeader, cache: "no-store" }),
           fetch("/api/bets", { headers: authHeader, cache: "no-store" })
         ]);
+        if (userRes.status === 401 || betsRes.status === 401) {
+          useWalletStore.getState().handleSessionExpired();
+          return;
+        }
         if (userRes.ok) {
           const userData = await userRes.json();
           if (typeof userData.appBalance === "number") {

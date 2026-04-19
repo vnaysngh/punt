@@ -43,6 +43,7 @@ export default function PortfolioPage() {
         headers: { "Authorization": `Bearer ${sessionToken}` },
         cache: "no-store",
       });
+      if (res.status === 401) { useWalletStore.getState().handleSessionExpired(); return; }
       const data = await res.json();
       setMyBets(Array.isArray(data) ? data : []);
     } catch { /* silent */ } finally { setLoading(false); }
@@ -53,12 +54,18 @@ export default function PortfolioPage() {
     const { sessionToken } = useWalletStore.getState();
     if (sessionToken) {
       fetch("/api/users", { headers: { "Authorization": `Bearer ${sessionToken}` }, cache: "no-store" })
-        .then((r) => r.ok ? r.json() : null)
+        .then((r) => {
+          if (r.status === 401) { useWalletStore.getState().handleSessionExpired(); return null; }
+          return r.ok ? r.json() : null;
+        })
         .then((d) => { if (d && typeof d.appBalance === "number") useWalletStore.getState().setAppBalance(d.appBalance); })
         .catch(() => {});
       fetch("/api/transactions", { headers: { "Authorization": `Bearer ${sessionToken}` }, cache: "no-store" })
-        .then((r) => r.ok ? r.json() : [])
-        .then((d) => setTxs(Array.isArray(d) ? d : []))
+        .then((r) => {
+          if (r.status === 401) { useWalletStore.getState().handleSessionExpired(); return null; }
+          return r.ok ? r.json() : null;
+        })
+        .then((d) => { if (d) setTxs(Array.isArray(d) ? d : []); })
         .catch(() => {});
     }
   }, [fetchBets]);

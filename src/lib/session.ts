@@ -29,7 +29,7 @@ function getSecret(): Uint8Array {
 }
 
 const ALG    = "HS256";
-const EXPIRY = "24h"; // 7d was too long for a financial app — reduces attack window on stolen tokens
+const EXPIRY = "30d"; // 30 days — withdrawals require Loop wallet signature so stolen token risk is low
 
 export type SessionPayload = { partyId: string };
 

@@ -22,6 +22,7 @@ export type WalletState = {
   }) => void;
   setAppBalance: (balance: number) => void;
   disconnect: () => void;
+  handleSessionExpired: () => void;
   requestConnect: () => void;
 };
 
@@ -61,6 +62,26 @@ export const useWalletStore = create<WalletState>()(
           appBalance: 0,
           sessionToken: null,
         }),
+
+      // Call this whenever an API returns 401 — clears stale session so UI prompts reconnect.
+      // Also calls logoutLoop() to reset the Loop SDK singleton so the next connect()
+      // triggers the full approve popup (not just autoConnect's cached-session shortcut).
+      handleSessionExpired: () => {
+        // Dynamic import avoids bundling the "use client" loop-client module server-side.
+        // Fire-and-forget — non-fatal if SDK not loaded (e.g. SSR context).
+        if (typeof window !== "undefined") {
+          import("@/lib/loop-client").then(({ logoutLoop }) => logoutLoop()).catch(() => {});
+        }
+        set({
+          connected: false,
+          walletType: null,
+          partyId: null,
+          email: null,
+          publicKey: null,
+          appBalance: 0,
+          sessionToken: null,
+        });
+      },
     }),
     {
       name: "betcc-wallet",
