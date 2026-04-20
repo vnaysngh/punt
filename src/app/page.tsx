@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState, useCallback, useRef } from "react";
+import { useBtcPrice } from "@/hooks/useBtcPrice";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   TrendingUp,
@@ -51,9 +52,7 @@ export default function MarketsPage() {
   } = useWalletStore();
   const connectLoop = requestConnect;
   const connectingLoop = false;
-  const [btcPrice, setBtcPrice] = useState<number | null>(null);
-  const [priceDir, setPriceDir] = useState<"up" | "down" | null>(null);
-  const priceDirTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const { price: btcPrice, dir: priceDir } = useBtcPrice();
 
   // Bet panel state
   const [direction, setDirection] = useState<"UP" | "DOWN" | null>(null);
@@ -154,27 +153,6 @@ export default function MarketsPage() {
     }
   }, [setLoading, setMarkets, setMyBets]);
 
-  const fetchPrice = useCallback(async () => {
-    try {
-      const res = await fetch("/api/price");
-      const data = await res.json();
-      if (data.price) {
-        const newPrice = data.price;
-        setBtcPrice((prev) => {
-          if (prev !== null && newPrice !== prev) {
-            const dir = newPrice > prev ? "up" : "down";
-            setPriceDir(dir);
-            if (priceDirTimer.current) clearTimeout(priceDirTimer.current);
-            priceDirTimer.current = setTimeout(() => setPriceDir(null), 2000);
-          }
-          return newPrice;
-        });
-      }
-    } catch {
-      /* silent */
-    }
-  }, []);
-
   const fetchBets = useCallback(async () => {
     const { sessionToken } = useWalletStore.getState();
     if (!sessionToken) return;
@@ -192,18 +170,15 @@ export default function MarketsPage() {
 
   useEffect(() => {
     fetchMarkets();
-    fetchPrice();
     // Only fetch user bets if already connected — avoids 401 spam on mount
     if (useWalletStore.getState().sessionToken) fetchBets();
     const marketsId = setInterval(fetchMarkets, 30_000);
-    const priceId = setInterval(fetchPrice, 1_000);
     const betsId = setInterval(fetchBets, 30_000);
     return () => {
       clearInterval(marketsId);
-      clearInterval(priceId);
       clearInterval(betsId);
     };
-  }, [fetchMarkets, fetchPrice, fetchBets]);
+  }, [fetchMarkets, fetchBets]);
 
   // Called by MarketTimer when the countdown hits zero
   const onTimerExpire = useCallback(() => {
@@ -446,7 +421,7 @@ export default function MarketsPage() {
               className="text-white/20 text-[10px]"
               style={{ fontFamily: "var(--font-space-mono)" }}
             >
-              · 1s
+              · live
             </span>
           </div>
         </motion.div>

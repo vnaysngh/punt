@@ -4,50 +4,45 @@ import { getBtcPrice } from "@/lib/price";
 export const dynamic = "force-dynamic";
 
 // ---------------------------------------------------------------------------
-// Background price poller
+// GET /api/price
 //
-// Fetches BTC price every 2s on a server-side interval — completely independent
-// of user requests. Users always get the last cached value instantly with no
-// upstream latency. If a source is slow or down (e.g. Binance blocked on Railway,
-// falling through to Coinbase/Kraken/CoinGecko with 5s timeouts each), the fetch
-// happens quietly in the background and never blocks a response.
+// One-shot BTC price fetch. Used as:
+//   1. WebSocket fallback by useBtcPrice hook when Binance WS is down
+//   2. Settlement / cron can also call getBtcPrice() directly — this route
+//      is not in the critical settlement path, just a convenience endpoint.
+//
+// Client-side price display uses the Binance WebSocket directly (useBtcPrice).
 // ---------------------------------------------------------------------------
+
+// Module-level cache: avoid hammering upstream if multiple fallback clients
+// hit this simultaneously during a WS outage. Cache for up to 3 seconds.
 let cached: { price: number; ts: number } | null = null;
-let polling = false;
-
-function startPoller() {
-  if (polling) return;
-  polling = true;
-
-  const tick = async () => {
-    try {
-      const price = await getBtcPrice();
-      cached = { price, ts: Date.now() };
-    } catch {
-      // All sources failed — keep the last cached value, don't clear it.
-      // Settlement uses its own getBtcPrice() call, not this cache.
-    }
-  };
-
-  tick(); // fetch immediately on first request
-  setInterval(tick, 2_000);
-}
+const CACHE_TTL_MS = 3_000;
 
 export async function GET() {
-  startPoller(); // no-op after first call
-
-  if (!cached) {
-    // Cold start — poller just fired for the first time, wait for it
-    try {
-      const price = await getBtcPrice();
-      cached = { price, ts: Date.now() };
-    } catch {
-      return NextResponse.json({ error: "Price unavailable" }, { status: 502 });
-    }
+  const now = Date.now();
+  if (cached && now - cached.ts < CACHE_TTL_MS) {
+    return NextResponse.json(
+      { price: cached.price, symbol: "BTC/USD", ts: cached.ts },
+      { headers: { "Cache-Control": "public, max-age=3" } }
+    );
   }
 
-  return NextResponse.json(
-    { price: cached.price, symbol: "BTC/USD", ts: cached.ts },
-    { headers: { "Cache-Control": "public, max-age=2" } }
-  );
+  try {
+    const price = await getBtcPrice();
+    cached = { price, ts: now };
+    return NextResponse.json(
+      { price, symbol: "BTC/USD", ts: now },
+      { headers: { "Cache-Control": "public, max-age=3" } }
+    );
+  } catch {
+    // Return stale value if available rather than a hard error
+    if (cached) {
+      return NextResponse.json(
+        { price: cached.price, symbol: "BTC/USD", ts: cached.ts, stale: true },
+        { headers: { "Cache-Control": "no-store" } }
+      );
+    }
+    return NextResponse.json({ error: "Price unavailable" }, { status: 502 });
+  }
 }

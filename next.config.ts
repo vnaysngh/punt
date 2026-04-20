@@ -26,7 +26,8 @@ const securityHeaders = [
       "img-src 'self' data: blob:",
       // Loop SDK connects to cantonloop.com (devnet + mainnet), loop.cash, and fivenorth.io
       // cantonloop.com: both bare domain (mainnet) and subdomains (devnet uses devnet.cantonloop.com)
-      "connect-src 'self' https://cantonloop.com wss://cantonloop.com https://*.cantonloop.com wss://*.cantonloop.com https://*.loop.cash wss://*.loop.cash https://*.fivenorth.io wss://*.fivenorth.io",
+      // Binance WebSocket: direct browser connection for live BTC/USD price feed
+      "connect-src 'self' https://cantonloop.com wss://cantonloop.com https://*.cantonloop.com wss://*.cantonloop.com https://*.loop.cash wss://*.loop.cash https://*.fivenorth.io wss://*.fivenorth.io wss://stream.binance.com",
       "frame-ancestors 'none'",
     ].join("; "),
   },
