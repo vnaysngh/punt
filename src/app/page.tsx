@@ -75,6 +75,7 @@ export default function MarketsPage() {
   const prevMyBetsRef = useRef<Bet[]>([]);
   const [poolFreshAt, setPoolFreshAt] = useState<number>(Date.now());
   const [historyPage, setHistoryPage] = useState(10); // how many settled markets to show
+  const hasFetchedRef = useRef(false); // true after first successful /api/markets response
   const HISTORY_PAGE_SIZE = 10;
 
   const addToast = useCallback((toast: Omit<ToastData, "id">) => {
@@ -110,6 +111,7 @@ export default function MarketsPage() {
       const data = await res.json();
       const marketList = Array.isArray(data) ? data : (data.markets ?? []);
       setMarkets(marketList);
+      hasFetchedRef.current = true;
       if (typeof data.totalCount === "number")
         setTotalRoundCount(data.totalCount);
       // Compute clock offset so bettingLocked uses server time, not client time
@@ -486,58 +488,20 @@ export default function MarketsPage() {
         )}
 
         {/* ─── Main Market Layout ─── */}
-        {loading && markets.length === 0 ? (
+        {!hasFetchedRef.current ? (
           <div className="space-y-4">
             <div className="h-12 rounded-2xl skeleton w-2/3" />
             <div className="h-64 rounded-3xl skeleton" />
           </div>
         ) : !liveMarket ? (
           <div className="flex flex-col items-center justify-center py-40 text-center">
-            <div
-              className="w-20 h-20 rounded-3xl flex items-center justify-center mb-5"
-              style={{
-                background: "rgba(251,191,36,0.06)",
-                border: "1px solid rgba(251,191,36,0.12)"
-              }}
-            >
-              <RefreshCw
-                className="w-9 h-9 text-amber-400/50 animate-spin"
-                style={{ animationDuration: "2s" }}
-              />
-            </div>
-            <p
-              className="text-white/50 font-semibold"
-              style={{ fontFamily: "var(--font-syne)" }}
-            >
-              Settling round…
+            <RefreshCw
+              className="w-8 h-8 text-white/20 animate-spin mb-4"
+              style={{ animationDuration: "2s" }}
+            />
+            <p className="text-white/30 text-sm">
+              Next round starting…
             </p>
-            <p className="text-white/20 text-sm mt-1.5">
-              Calculating results · next round starts in a few seconds
-            </p>
-            <div
-              className="mt-6 max-w-xs text-left rounded-2xl px-4 py-3 space-y-1.5"
-              style={{
-                background: "rgba(255,255,255,0.02)",
-                border: "1px solid rgba(255,255,255,0.05)"
-              }}
-            >
-              <p className="text-white/20 text-[11px] uppercase tracking-widest font-semibold mb-2">
-                How it works
-              </p>
-              {[
-                "Settlement uses Binance BTC/USDT spot price at round close",
-                "Winners share the pool minus 5% platform fee",
-                "Price unchanged? Round is a DRAW — all bets fully refunded"
-              ].map((line) => (
-                <p
-                  key={line}
-                  className="text-white/25 text-xs flex items-start gap-2"
-                >
-                  <span className="text-[#28cc95]/40 mt-0.5">·</span>
-                  {line}
-                </p>
-              ))}
-            </div>
           </div>
         ) : (
           <motion.div
