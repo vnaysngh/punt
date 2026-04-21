@@ -172,6 +172,8 @@ async function runCycle(now: Date) {
     where: { status: { in: ["OPEN", "CLOSED"] }, closeAt: { lte: now } },
   });
 
+  console.log(`[cycle-markets] remainingExpired=${remainingExpired}`);
+
   if (remainingExpired > 0) {
     console.warn(`[cycle-markets] ${remainingExpired} expired market(s) still unsettled — skipping new market creation`);
     return { settled: settled.length, created: false, errors };
@@ -179,10 +181,23 @@ async function runCycle(now: Date) {
 
   // Step 3: Atomic INSERT — WHERE NOT EXISTS prevents concurrent creation.
   // Fetch a fresh price for the new market's lock price.
-  const startPrice = await getBtcPrice();
+  console.log("[cycle-markets] Fetching startPrice via getBtcPrice()...");
+  let startPrice: number;
+  try {
+    startPrice = await getBtcPrice();
+    console.log(`[cycle-markets] getBtcPrice() returned: ${startPrice}`);
+  } catch (err) {
+    console.error("[cycle-markets] getBtcPrice() threw an error:", err);
+    throw err;
+  }
+
   const id = `mkt_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
   const openAt  = now.toISOString();
   const closeAt = addMinutes(now, 15).toISOString();
+
+  const sql = `INSERT INTO markets ... WHERE NOT EXISTS (SELECT 1 FROM markets WHERE status = 'OPEN') RETURNING id`;
+  console.log(`[cycle-markets] Executing INSERT — id=${id}, openAt=${openAt}, closeAt=${closeAt}, startPrice=${startPrice}`);
+  console.log(`[cycle-markets] SQL template: ${sql}`);
 
   const result = await prisma.$queryRaw<{ inserted: boolean }[]>`
     INSERT INTO markets (id, question, "assetPair", category, "startPrice", "totalUp", "totalDown", "openAt", "closeAt", status, "createdAt", "updatedAt")
@@ -194,9 +209,13 @@ async function runCycle(now: Date) {
     RETURNING id
   `;
 
+  console.log(`[cycle-markets] INSERT result: ${JSON.stringify(result)} (length=${result.length})`);
+
   const created = result.length > 0;
   if (created) {
     console.log(`[cycle-markets] Created new market @ ${startPrice}`);
+  } else {
+    console.warn(`[cycle-markets] INSERT returned 0 rows — WHERE NOT EXISTS blocked creation (an OPEN market already exists, or INSERT silently failed)`);
   }
 
   return { settled: settled.length, created, ...(errors.length > 0 ? { errors } : {}) };
