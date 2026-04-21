@@ -47,7 +47,6 @@ export async function initLoopServer(): Promise<void> {
   });
   await loop.authenticate();
   _authenticated = true;
-  console.log("[Canton] Server SDK authenticated for party:", partyId);
 }
 
 export interface PendingTransferInstruction {
@@ -222,7 +221,6 @@ export async function sendTransfer(
   }
 
   const updateId: string = result?.update_id ?? result?.command_id ?? "ok";
-  console.log(`[Canton] Sent ${amount} CBTC → ${recipientPartyId} | updateId: ${updateId}`);
   return updateId;
 }
 
@@ -249,7 +247,6 @@ export async function acceptTransferInstruction(
     (process.env.NEXT_PUBLIC_LOOP_NETWORK === "mainnet"
       ? "https://cantonloop.com"
       : "https://devnet.cantonloop.com");
-  console.log(`[Canton] acceptTransferInstruction — loopApiBase=${loopApiBase}`);
 
   const signer = loop.getSigner();
 
@@ -272,7 +269,6 @@ export async function acceptTransferInstruction(
     await initLoopServer();
     const freshLoop = await getLoop();
     const fresh = freshLoop?.session?.userApiKey;
-    console.log(`[Canton] Re-auth complete — new apiKeyPrefix: ${fresh?.slice(0, 8) ?? "MISSING"}`);
     if (!fresh) throw new Error("Canton re-authentication failed — no userApiKey after re-auth");
     return fresh;
   };
@@ -286,7 +282,6 @@ export async function acceptTransferInstruction(
 
   // Step 1: get unsigned transaction hash — retry once on 403 (expired session)
   const acceptUrl = `${loopApiBase}/api/v1/token-standard/transfer-instructions/${encodeURIComponent(providerPartyId)}/${encodeURIComponent(contractId)}/accept`;
-  console.log(`[Canton] Attempting accept — contractId=${contractId.slice(0, 16)}… apiKeyPrefix=${apiKey.slice(0, 8)}`);
   let acceptRes = await fetch(acceptUrl, {
     method: "POST",
     headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
@@ -296,7 +291,6 @@ export async function acceptTransferInstruction(
     // Session expired — force full re-auth (ignore any cached key) and retry once
     console.warn("[Canton] 403 on accept — session expired, forcing re-auth");
     apiKey = await reAuth();
-    console.log(`[Canton] Retrying accept with fresh apiKeyPrefix=${apiKey.slice(0, 8)}`);
     acceptRes = await fetch(acceptUrl, {
       method: "POST",
       headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
@@ -305,7 +299,7 @@ export async function acceptTransferInstruction(
   }
   if (!acceptRes.ok) {
     const errText = await acceptRes.text();
-    console.error(`[Canton] accept failed: ${acceptRes.status} — url=${acceptUrl} providerPartyId=${providerPartyId} contractId=${contractId} apiKeyPrefix=${apiKey?.slice(0,8)} body=${errText}`);
+    console.error(`[Canton] accept failed: ${acceptRes.status} — contractId=${contractId} providerPartyId=${providerPartyId} body=${errText}`);
     throw new Error(`accept failed: ${acceptRes.status} ${errText}`);
   }
   const { transaction_hash } = await acceptRes.json() as { transaction_hash: string };
@@ -327,7 +321,6 @@ export async function acceptTransferInstruction(
   }
 
   const executeData = await executeRes.json() as { status: string; update_id?: string };
-  console.log(`[Canton] Accepted transfer ${contractId} → ${executeData.status}`);
 
   // Post-flight gas
   try {

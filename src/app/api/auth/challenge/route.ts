@@ -21,13 +21,34 @@ export const dynamic = "force-dynamic";
 // Fine for a single-instance server (Railway). For horizontal scaling, use Redis.
 const challenges = new Map<string, { challenge: string; expiresAt: number }>();
 
-// Clean up expired challenges every 5 minutes
+// Rate limiter: max 5 challenges per partyId per minute
+const rateLimits = new Map<string, { count: number; resetAt: number }>();
+const MAX_CHALLENGES_PER_MINUTE = 5;
+
+// Clean up expired challenges and rate limit entries every 5 minutes
 setInterval(() => {
   const now = Date.now();
   for (const [partyId, entry] of challenges) {
     if (entry.expiresAt < now) challenges.delete(partyId);
   }
+  for (const [partyId, entry] of rateLimits) {
+    if (entry.resetAt < now) rateLimits.delete(partyId);
+  }
 }, 5 * 60 * 1000);
+
+function checkRateLimit(partyId: string): boolean {
+  const now = Date.now();
+  const entry = rateLimits.get(partyId);
+  if (!entry || entry.resetAt < now) {
+    rateLimits.set(partyId, { count: 1, resetAt: now + 60_000 });
+    return true;
+  }
+  if (entry.count < MAX_CHALLENGES_PER_MINUTE) {
+    entry.count++;
+    return true;
+  }
+  return false;
+}
 
 const PARTY_ID_RE = /^[A-Za-z0-9_-]{1,128}::[0-9a-f]{8,}$/i;
 const TTL_MS = 5 * 60 * 1000; // 5 minutes
@@ -52,6 +73,13 @@ export async function GET(req: NextRequest) {
 
   if (!partyId || !PARTY_ID_RE.test(partyId)) {
     return NextResponse.json({ error: "Invalid partyId" }, { status: 400 });
+  }
+
+  if (!checkRateLimit(partyId)) {
+    return NextResponse.json(
+      { error: "Too many challenge requests. Please wait a moment." },
+      { status: 429 }
+    );
   }
 
   const challenge = crypto.randomBytes(32).toString("hex");

@@ -16,82 +16,87 @@ const fromSatsBig  = (n: bigint) => Number(n) / SATS;
 const PRICE_EPSILON = 0.000001;
 
 /**
- * Settle a single expired market. Duplicated from cycle-markets so this route
- * is fully self-contained — the cron is an optimization, not a requirement.
+ * Settle a single expired market. Uses SELECT FOR UPDATE pessimistic locking to
+ * prevent double-settlement when both the cron and this lazy-settle path race.
  */
 async function settleMarketInline(marketId: string, closePrice: number) {
-  const market = await prisma.market.findUnique({
-    where: { id: marketId },
-    include: { bets: true },
-  });
-  if (!market || market.status === "SETTLED") return;
+  return prisma.$transaction(async (tx) => {
+    // Pessimistic lock: first cron tick acquires the row lock; second blocks until
+    // first commits, then sees SETTLED status and exits early.
+    const locked = await tx.$queryRaw<{ id: string; status: string; closeAt: Date }[]>`
+      SELECT id, status, "closeAt" FROM markets WHERE id = ${marketId} FOR UPDATE
+    `;
+    if (!locked.length || locked[0].status === "SETTLED") return;
+    if (new Date(locked[0].closeAt).getTime() > Date.now()) return;
 
-  // Safety: never settle a market whose close time is still in the future
-  if (market.closeAt.getTime() > Date.now()) return;
+    const market = await tx.market.findUnique({
+      where: { id: marketId },
+      include: { bets: true },
+    });
+    if (!market || market.status === "SETTLED") return;
+    if (market.closeAt.getTime() > Date.now()) return;
 
-  const startPrice = market.startPrice.toNumber();
-  const totalUp    = market.totalUp.toNumber();
-  const totalDown  = market.totalDown.toNumber();
-  const bets: BetRow[] = market.bets.map((b: { id: string; userId: string; direction: string; amount: { toNumber(): number } }) => ({
-    id: b.id, userId: b.userId, direction: b.direction, amount: b.amount.toNumber(),
-  }));
+    const startPrice = market.startPrice.toNumber();
+    const totalUp    = market.totalUp.toNumber();
+    const totalDown  = market.totalDown.toNumber();
+    const bets: BetRow[] = market.bets.map((b: { id: string; userId: string; direction: string; amount: { toNumber(): number } }) => ({
+      id: b.id, userId: b.userId, direction: b.direction, amount: b.amount.toNumber(),
+    }));
 
-  const totalPool = totalUp + totalDown;
-  const now = new Date();
+    const totalPool = totalUp + totalDown;
+    const now = new Date();
 
-  // DRAW: use epsilon comparison — strict equality fails for floating-point exchange prices
-  const isDraw = Math.abs(closePrice - startPrice) < PRICE_EPSILON;
-  const winningDirection = isDraw ? "DRAW" : closePrice > startPrice ? "UP" : "DOWN";
-  const winningPool = isDraw ? 0 : winningDirection === "UP" ? totalUp : totalDown;
+    // DRAW: use epsilon comparison — strict equality fails for floating-point exchange prices
+    const isDraw = Math.abs(closePrice - startPrice) < PRICE_EPSILON;
+    const winningDirection = isDraw ? "DRAW" : closePrice > startPrice ? "UP" : "DOWN";
+    const winningPool = isDraw ? 0 : winningDirection === "UP" ? totalUp : totalDown;
 
-  if (totalPool === 0) {
-    // Wrap in $transaction for consistent double-settlement guard (P2025 on concurrent settle)
-    await prisma.$transaction([
-      prisma.market.update({
+    if (totalPool === 0) {
+      await tx.market.update({
         where: { id: marketId, status: { not: "SETTLED" } },
         data: { closePrice, direction: winningDirection, status: "SETTLED", settledAt: now },
-      }),
-    ]);
-    return;
-  }
+      });
+      return;
+    }
 
-  const winnerBets = bets.filter((b) => b.direction === winningDirection);
-  const loserBets  = bets.filter((b) => b.direction !== winningDirection);
+    const winnerBets = bets.filter((b) => b.direction === winningDirection);
+    const loserBets  = bets.filter((b) => b.direction !== winningDirection);
 
-  // Refund all if: draw, nobody bet on winning side, or no counterparty (all bets on one side)
-  if (isDraw || winningPool === 0 || loserBets.length === 0) {
-    await prisma.$transaction([
-      prisma.market.update({
+    if (isDraw || winningPool === 0 || loserBets.length === 0) {
+      await tx.market.update({
         where: { id: marketId, status: { not: "SETTLED" } },
         data: { closePrice, direction: winningDirection, status: "SETTLED", settledAt: now },
-      }),
-      ...bets.map((b) => prisma.bet.update({ where: { id: b.id }, data: { status: "REFUNDED", payout: b.amount, settledAt: now } })),
-      ...bets.map((b) => prisma.user.update({ where: { id: b.userId }, data: { appBalance: { increment: b.amount } } })),
-    ]);
-    return;
-  }
+      });
+      for (const b of bets) {
+        await tx.bet.update({ where: { id: b.id }, data: { status: "REFUNDED", payout: b.amount, settledAt: now } });
+        await tx.user.update({ where: { id: b.userId }, data: { appBalance: { increment: b.amount } } });
+      }
+      return;
+    }
 
-  // 5% platform fee from total pool before distribution.
-  // IMPORTANT: BigInt arithmetic — betSats * adjustedPoolSats can reach ~1e25, overflowing float64.
-  const totalPoolSatsBig    = toSatsBig(totalPool);
-  const adjustedPoolSatsBig = (totalPoolSatsBig * BigInt(95)) / BigInt(100);
-  const winningPoolSatsBig  = toSatsBig(winningPool);
+    // 5% platform fee — BigInt arithmetic to avoid float64 overflow
+    const totalPoolSatsBig    = toSatsBig(totalPool);
+    const adjustedPoolSatsBig = (totalPoolSatsBig * BigInt(95)) / BigInt(100);
+    const winningPoolSatsBig  = toSatsBig(winningPool);
 
-  const payouts = winnerBets.map((bet) => {
-    const betSatsBig    = toSatsBig(bet.amount);
-    const payoutSatsBig = (betSatsBig * adjustedPoolSatsBig) / winningPoolSatsBig;
-    return { bet, payout: fromSatsBig(payoutSatsBig) };
-  });
+    const payouts = winnerBets.map((bet) => {
+      const betSatsBig    = toSatsBig(bet.amount);
+      const payoutSatsBig = (betSatsBig * adjustedPoolSatsBig) / winningPoolSatsBig;
+      return { bet, payout: fromSatsBig(payoutSatsBig) };
+    });
 
-  await prisma.$transaction([
-    prisma.market.update({
+    await tx.market.update({
       where: { id: marketId, status: { not: "SETTLED" } },
       data: { closePrice, direction: winningDirection, status: "SETTLED", settledAt: now },
-    }),
-    ...payouts.map(({ bet, payout }) => prisma.bet.update({ where: { id: bet.id }, data: { status: "WON", payout, settledAt: now } })),
-    ...payouts.map(({ bet, payout }) => prisma.user.update({ where: { id: bet.userId }, data: { appBalance: { increment: payout } } })),
-    ...loserBets.map((b) => prisma.bet.update({ where: { id: b.id }, data: { status: "LOST", payout: 0, settledAt: now } })),
-  ]);
+    });
+    for (const { bet, payout } of payouts) {
+      await tx.bet.update({ where: { id: bet.id }, data: { status: "WON", payout, settledAt: now } });
+      await tx.user.update({ where: { id: bet.userId }, data: { appBalance: { increment: payout } } });
+    }
+    for (const b of loserBets) {
+      await tx.bet.update({ where: { id: b.id }, data: { status: "LOST", payout: 0, settledAt: now } });
+    }
+  });
 }
 
 /**
@@ -134,20 +139,28 @@ export async function GET() {
     if (hasOpen === 0) {
       try {
         const startPrice = await getBtcPrice();
-        const id = `mkt_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
-        const openAt  = now.toISOString();
-        const closeAt = addMinutes(now, 15).toISOString();
-
-        await prisma.$queryRaw`
-          INSERT INTO markets (id, question, "assetPair", category, "startPrice", "totalUp", "totalDown", "openAt", "closeAt", status, "createdAt", "updatedAt")
-          SELECT ${id}, 'What will BTC/USD be in 15 minutes?', 'BTC/USD', 'crypto',
-                 ${startPrice}::numeric, 0, 0,
-                 ${openAt}::timestamptz, ${closeAt}::timestamptz,
-                 'OPEN'::"MarketStatus", NOW(), NOW()
-          WHERE NOT EXISTS (SELECT 1 FROM markets WHERE status = 'OPEN')
-        `;
+        await prisma.$transaction(async (tx) => {
+          const existing = await tx.market.findFirst({ where: { status: "OPEN" } });
+          if (existing) return;
+          await tx.market.create({
+            data: {
+              question:  "What will BTC/USD be in 15 minutes?",
+              assetPair: "BTC/USD",
+              category:  "crypto",
+              startPrice,
+              totalUp:   0,
+              totalDown: 0,
+              openAt:    now,
+              closeAt:   addMinutes(now, 15),
+              status:    "OPEN",
+            },
+          });
+        });
       } catch (err) {
-        console.error("[GET /api/markets] failed to create new market:", err);
+        const msg = err instanceof Error ? err.message : String(err);
+        if (!msg.includes("P2002") && !msg.includes("Unique constraint")) {
+          console.error("[GET /api/markets] failed to create new market:", err);
+        }
       }
     }
 
@@ -171,7 +184,7 @@ export async function GET() {
     }));
 
     return NextResponse.json(
-      { markets: serialized, totalCount },
+      { markets: serialized, totalCount, serverTime: now.toISOString() },
       { headers: { "Cache-Control": "no-store, no-cache, must-revalidate" } }
     );
   } catch (err) {

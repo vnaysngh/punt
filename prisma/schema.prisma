@@ -116,4 +116,5 @@ enum WithdrawalStatus {
   PENDING
   CONFIRMED
   FAILED
+  FAILED_ROLLBACK // on-chain transfer failed AND DB rollback also failed — needs manual reconciliation
 }

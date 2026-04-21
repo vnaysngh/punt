@@ -29,6 +29,7 @@ export default function PortfolioPage() {
   const { connected, partyId, appBalance, requestConnect } = useWalletStore();
   const { myBets, setMyBets } = useMarketStore();
   const [loading, setLoading] = useState(false);
+  const [fetchError, setFetchError] = useState<string | null>(null);
   const [depositOpen, setDepositOpen] = useState(false);
   const [withdrawOpen, setWithdrawOpen] = useState(false);
   const [txs, setTxs] = useState<Tx[]>([]);
@@ -44,9 +45,13 @@ export default function PortfolioPage() {
         cache: "no-store",
       });
       if (res.status === 401) { useWalletStore.getState().handleSessionExpired(); return; }
+      if (!res.ok) { setFetchError("Could not load your bets. Please refresh the page."); return; }
       const data = await res.json();
       setMyBets(Array.isArray(data) ? data : []);
-    } catch { /* silent */ } finally { setLoading(false); }
+      setFetchError(null);
+    } catch {
+      setFetchError("Network error — could not load your portfolio. Please check your connection.");
+    } finally { setLoading(false); }
   }, [setMyBets]);
 
   useEffect(() => {
@@ -59,7 +64,7 @@ export default function PortfolioPage() {
           return r.ok ? r.json() : null;
         })
         .then((d) => { if (d && typeof d.appBalance === "number") useWalletStore.getState().setAppBalance(d.appBalance); })
-        .catch(() => {});
+        .catch(() => { setFetchError("Could not refresh balance. Please reload the page."); });
       fetch("/api/transactions", { headers: { "Authorization": `Bearer ${sessionToken}` }, cache: "no-store" })
         .then((r) => {
           if (r.status === 401) { useWalletStore.getState().handleSessionExpired(); return null; }
@@ -118,6 +123,15 @@ export default function PortfolioPage() {
           <h1 className="text-4xl font-extrabold text-white" style={{ fontFamily: "var(--font-syne)" }}>Portfolio</h1>
           <p className="text-white/35 mt-1.5 text-sm">Your CBTC app balance, bets &amp; P&amp;L</p>
         </motion.div>
+
+        {/* Network error banner */}
+        {fetchError && (
+          <div className="mb-5 flex items-center gap-3 px-4 py-3 rounded-2xl" style={{ background: "rgba(239,68,68,0.07)", border: "1px solid rgba(239,68,68,0.18)" }}>
+            <XCircle className="w-4 h-4 text-red-400 shrink-0" />
+            <p className="text-red-400/80 text-sm">{fetchError}</p>
+            <button onClick={fetchBets} className="ml-auto text-white/40 hover:text-white/70 text-xs underline transition-colors">Retry</button>
+          </div>
+        )}
 
         {/* Balance hero */}
         <motion.div

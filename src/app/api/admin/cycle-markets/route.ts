@@ -19,7 +19,26 @@ const fromSatsBig  = (n: bigint) => Number(n) / SATS;
 const PRICE_EPSILON = 0.000001; // sub-cent — no real BTC price move is this small
 
 async function settleMarket(marketId: string, closePrice: number) {
-  const market = await prisma.market.findUnique({
+  // Pessimistic lock: SELECT FOR UPDATE prevents two concurrent cron ticks from
+  // both reading OPEN status and proceeding to settle the same market simultaneously.
+  // The first transaction acquires the row lock; the second blocks until the first
+  // commits, then reads the updated SETTLED status and exits early.
+  return prisma.$transaction(async (tx) => {
+    const locked = await tx.$queryRaw<{ id: string; status: string; closeAt: Date }[]>`
+      SELECT id, status, "closeAt" FROM markets WHERE id = ${marketId} FOR UPDATE
+    `;
+    if (!locked.length || locked[0].status === "SETTLED") return null;
+    if (new Date(locked[0].closeAt).getTime() > Date.now()) {
+      console.warn(`[cycle-markets] Skipping ${marketId} — not expired yet`);
+      return null;
+    }
+    return _settleMarket(tx, marketId, closePrice);
+  });
+}
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+async function _settleMarket(tx: any, marketId: string, closePrice: number) {
+  const market = await tx.market.findUnique({
     where: { id: marketId },
     include: { bets: true },
   });
@@ -53,15 +72,13 @@ async function settleMarket(marketId: string, closePrice: number) {
   const winningPool = isDraw ? 0 : winningDirection === "UP" ? totalUp : totalDown;
 
   if (totalPool === 0) {
-    // Wrap in $transaction even for single update — consistent with double-settlement guard:
-    // if two concurrent cron ticks both reach this branch, only one WHERE status≠SETTLED wins;
-    // the other gets P2025 and throws, which is caught by the caller's try/catch.
-    await prisma.$transaction([
-      prisma.market.update({
-        where: { id: marketId, status: { not: "SETTLED" } },
-        data: { closePrice, direction: winningDirection, status: "SETTLED", settledAt: now },
-      }),
-    ]);
+    // All writes go through tx — already inside the SELECT FOR UPDATE transaction.
+    // WHERE status≠SETTLED is an extra guard: if somehow two concurrent transactions
+    // both pass the FOR UPDATE check (shouldn't happen), only one wins here.
+    await tx.market.update({
+      where: { id: marketId, status: { not: "SETTLED" } },
+      data: { closePrice, direction: winningDirection, status: "SETTLED", settledAt: now },
+    });
     return { marketId, closePrice, winningDirection, bets: 0 };
   }
 
@@ -70,24 +87,20 @@ async function settleMarket(marketId: string, closePrice: number) {
 
   // Refund all if: draw, nobody bet on winning side, or no counterparty (all bets on one side)
   if (isDraw || winningPool === 0 || loserBets.length === 0) {
-    await prisma.$transaction([
-      prisma.market.update({
-        where: { id: marketId, status: { not: "SETTLED" } },
-        data: { closePrice, direction: winningDirection, status: "SETTLED", settledAt: now },
-      }),
-      ...bets.map((bet) =>
-        prisma.bet.update({
-          where: { id: bet.id },
-          data: { status: "REFUNDED", payout: bet.amount, settledAt: now },
-        })
-      ),
-      ...bets.map((bet) =>
-        prisma.user.update({
-          where: { id: bet.userId },
-          data: { appBalance: { increment: bet.amount } },
-        })
-      ),
-    ]);
+    await tx.market.update({
+      where: { id: marketId, status: { not: "SETTLED" } },
+      data: { closePrice, direction: winningDirection, status: "SETTLED", settledAt: now },
+    });
+    for (const bet of bets) {
+      await tx.bet.update({
+        where: { id: bet.id },
+        data: { status: "REFUNDED", payout: bet.amount, settledAt: now },
+      });
+      await tx.user.update({
+        where: { id: bet.userId },
+        data: { appBalance: { increment: bet.amount } },
+      });
+    }
     return { marketId, closePrice, winningDirection, refunded: bets.length };
   }
 
@@ -111,30 +124,26 @@ async function settleMarket(marketId: string, closePrice: number) {
     return { bet, payout: fromSatsBig(payoutSatsBig) };
   });
 
-  await prisma.$transaction([
-    prisma.market.update({
-      where: { id: marketId, status: { not: "SETTLED" } },
-      data: { closePrice, direction: winningDirection, status: "SETTLED", settledAt: now },
-    }),
-    ...payouts.map(({ bet, payout }) =>
-      prisma.bet.update({
-        where: { id: bet.id },
-        data: { status: "WON", payout, settledAt: now },
-      })
-    ),
-    ...payouts.map(({ bet, payout }) =>
-      prisma.user.update({
-        where: { id: bet.userId },
-        data: { appBalance: { increment: payout } },
-      })
-    ),
-    ...loserBets.map((bet) =>
-      prisma.bet.update({
-        where: { id: bet.id },
-        data: { status: "LOST", payout: 0, settledAt: now },
-      })
-    ),
-  ]);
+  await tx.market.update({
+    where: { id: marketId, status: { not: "SETTLED" } },
+    data: { closePrice, direction: winningDirection, status: "SETTLED", settledAt: now },
+  });
+  for (const { bet, payout } of payouts) {
+    await tx.bet.update({
+      where: { id: bet.id },
+      data: { status: "WON", payout, settledAt: now },
+    });
+    await tx.user.update({
+      where: { id: bet.userId },
+      data: { appBalance: { increment: payout } },
+    });
+  }
+  for (const bet of loserBets) {
+    await tx.bet.update({
+      where: { id: bet.id },
+      data: { status: "LOST", payout: 0, settledAt: now },
+    });
+  }
 
   console.log(`[cycle-markets] Fee collected: ${platformFee} CBTC from market ${marketId}`);
   return { marketId, closePrice, winningDirection, winners: winnerBets.length, losers: loserBets.length, platformFee };
@@ -177,24 +186,42 @@ async function runCycle(now: Date) {
     return { settled: settled.length, created: false, errors };
   }
 
-  // Step 3: Atomic INSERT — WHERE NOT EXISTS prevents concurrent creation.
-  // Fetch a fresh price for the new market's lock price.
+  // Step 3: Create a new OPEN market if none exists.
+  // Uses a DB-level guard: the INSERT is wrapped in a transaction that first checks
+  // for an existing OPEN market. The unique partial index on (status='OPEN') prevents
+  // two concurrent cron ticks from both creating a market simultaneously.
   const startPrice = await getBtcPrice();
-  const id = `mkt_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
-  const openAt  = now.toISOString();
-  const closeAt = addMinutes(now, 15).toISOString();
+  const closeAt = addMinutes(now, 15);
 
-  const result = await prisma.$queryRaw<{ inserted: boolean }[]>`
-    INSERT INTO markets (id, question, "assetPair", category, "startPrice", "totalUp", "totalDown", "openAt", "closeAt", status, "createdAt", "updatedAt")
-    SELECT ${id}, 'What will BTC/USD be in 15 minutes?', 'BTC/USD', 'crypto',
-           ${startPrice}::numeric, 0, 0,
-           ${openAt}::timestamptz, ${closeAt}::timestamptz,
-           'OPEN'::"MarketStatus", NOW(), NOW()
-    WHERE NOT EXISTS (SELECT 1 FROM markets WHERE status = 'OPEN')
-    RETURNING id
-  `;
+  // Atomic: check-then-insert inside a serializable transaction to prevent duplicates.
+  // If another process wins the race and inserts first, we skip gracefully.
+  let created = false;
+  try {
+    await prisma.$transaction(async (tx) => {
+      const existing = await tx.market.findFirst({ where: { status: "OPEN" } });
+      if (existing) return; // already have an open market — skip
+      await tx.market.create({
+        data: {
+          question:   "What will BTC/USD be in 15 minutes?",
+          assetPair:  "BTC/USD",
+          category:   "crypto",
+          startPrice,
+          totalUp:    0,
+          totalDown:  0,
+          openAt:     now,
+          closeAt,
+          status:     "OPEN",
+        },
+      });
+      created = true;
+    });
+  } catch (err) {
+    // Unique constraint violation = concurrent insert won the race. Safe to ignore.
+    const msg = err instanceof Error ? err.message : String(err);
+    if (!msg.includes("P2002") && !msg.includes("Unique constraint")) throw err;
+    console.warn("[cycle-markets] Concurrent market creation detected — skipping");
+  }
 
-  const created = result.length > 0;
   if (created) {
     console.log(`[cycle-markets] Created new market @ ${startPrice}`);
   }

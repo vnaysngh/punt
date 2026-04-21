@@ -112,12 +112,9 @@ export async function getBtcPrice(): Promise<number> {
   // --- 1. Chainlink (Arbitrum on-chain, cryptographically verified) ---
   try {
     const price = await getChainlinkPrice();
-    if (inBounds(price)) {
-      console.log(`[price] Chainlink: $${price.toFixed(2)}`);
-      return price;
-    }
+    if (inBounds(price)) return price;
   } catch (err) {
-    console.warn("[price] Chainlink failed, falling back to REST:", err instanceof Error ? err.message : err);
+    console.warn("[price] Chainlink failed, trying REST:", err instanceof Error ? err.message : err);
   }
 
   // --- 2. Binance ---
@@ -128,10 +125,7 @@ export async function getBtcPrice(): Promise<number> {
     if (res.ok) {
       const data = await res.json();
       const price = parseFloat(data.price);
-      if (inBounds(price)) {
-        console.log(`[price] Binance: $${price.toFixed(2)}`);
-        return price;
-      }
+      if (inBounds(price)) return price;
     }
   } catch {
     // fall through
@@ -145,10 +139,7 @@ export async function getBtcPrice(): Promise<number> {
     if (res.ok) {
       const data = await res.json();
       const price = parseFloat(data?.data?.amount);
-      if (inBounds(price)) {
-        console.log(`[price] Coinbase: $${price.toFixed(2)}`);
-        return price;
-      }
+      if (inBounds(price)) return price;
     }
   } catch {
     // fall through
@@ -162,10 +153,7 @@ export async function getBtcPrice(): Promise<number> {
     if (res.ok) {
       const data = await res.json();
       const price = parseFloat(data?.result?.XXBTZUSD?.c?.[0]);
-      if (inBounds(price)) {
-        console.log(`[price] Kraken: $${price.toFixed(2)}`);
-        return price;
-      }
+      if (inBounds(price)) return price;
     }
   } catch {
     // fall through
@@ -179,10 +167,7 @@ export async function getBtcPrice(): Promise<number> {
     if (res.ok) {
       const data = await res.json();
       const price = data?.bitcoin?.usd as number | undefined;
-      if (typeof price === "number" && inBounds(price)) {
-        console.log(`[price] CoinGecko: $${price.toFixed(2)}`);
-        return price;
-      }
+      if (typeof price === "number" && inBounds(price)) return price;
     }
   } catch {
     // fall through

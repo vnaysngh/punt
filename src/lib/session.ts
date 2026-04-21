@@ -29,7 +29,10 @@ function getSecret(): Uint8Array {
 }
 
 const ALG    = "HS256";
-const EXPIRY = "30d"; // 30 days — withdrawals require Loop wallet signature so stolen token risk is low
+const EXPIRY = "7d";
+// Refresh window: if the token has less than this time remaining, autoConnect silently
+// re-issues it. No user interaction needed — the Loop SDK session is still valid.
+export const REFRESH_BEFORE_EXPIRY_MS = 2 * 24 * 60 * 60 * 1000; // refresh when <2d left
 
 export type SessionPayload = { partyId: string };
 
@@ -47,6 +50,21 @@ export async function verifySession(token: string): Promise<SessionPayload> {
     throw new Error("Invalid session payload");
   }
   return { partyId: payload.partyId };
+}
+
+/**
+ * Decode the expiry from a JWT without verifying the signature.
+ * Safe for CLIENT-SIDE use only (to decide whether to refresh).
+ * Never trust the payload for authorization — that happens server-side.
+ */
+export function getTokenExpiry(token: string): number | null {
+  try {
+    const [, payloadB64] = token.split(".");
+    const payload = JSON.parse(atob(payloadB64.replace(/-/g, "+").replace(/_/g, "/")));
+    return typeof payload.exp === "number" ? payload.exp * 1000 : null; // ms
+  } catch {
+    return null;
+  }
 }
 
 export async function getSessionFromRequest(req: Request): Promise<string | null> {

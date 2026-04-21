@@ -69,6 +69,9 @@ export default function MarketsPage() {
   const [totalRoundCount, setTotalRoundCount] = useState(0);
   const [submitting, setSubmitting] = useState(false);
   const [toasts, setToasts] = useState<ToastData[]>([]);
+  // Clock offset: difference between server time and local time at last fetch.
+  // Used so bettingLocked uses server clock, not potentially skewed client clock.
+  const serverClockOffsetRef = useRef(0);
   const prevMyBetsRef = useRef<Bet[]>([]);
   const [poolFreshAt, setPoolFreshAt] = useState<number>(Date.now());
   const [historyPage, setHistoryPage] = useState(10); // how many settled markets to show
@@ -100,11 +103,19 @@ export default function MarketsPage() {
     setLoading(true);
     try {
       const res = await fetch("/api/markets", { cache: "no-store" });
+      if (!res.ok) {
+        addToast({ type: "loss", title: "Network error", message: "Could not load market data. Retrying…" });
+        return;
+      }
       const data = await res.json();
       const marketList = Array.isArray(data) ? data : (data.markets ?? []);
       setMarkets(marketList);
       if (typeof data.totalCount === "number")
         setTotalRoundCount(data.totalCount);
+      // Compute clock offset so bettingLocked uses server time, not client time
+      if (typeof data.serverTime === "string") {
+        serverClockOffsetRef.current = new Date(data.serverTime).getTime() - Date.now();
+      }
 
       // Fetch bets for the open market
       const open = marketList.find((m: Market) => m.status === "OPEN") ?? null;
@@ -135,6 +146,9 @@ export default function MarketsPage() {
           useWalletStore.getState().handleSessionExpired();
           return;
         }
+        if (!userRes.ok || !betsRes.ok) {
+          addToast({ type: "loss", title: "Network error", message: "Could not refresh balance. Please check your connection." });
+        }
         if (userRes.ok) {
           const userData = await userRes.json();
           if (typeof userData.appBalance === "number") {
@@ -147,11 +161,11 @@ export default function MarketsPage() {
         }
       }
     } catch {
-      /* silent */
+      addToast({ type: "loss", title: "Network error", message: "Could not load markets. Retrying…" });
     } finally {
       setLoading(false);
     }
-  }, [setLoading, setMarkets, setMyBets]);
+  }, [setLoading, setMarkets, setMyBets, addToast]);
 
   const fetchBets = useCallback(async () => {
     const { sessionToken } = useWalletStore.getState();
@@ -250,9 +264,11 @@ export default function MarketsPage() {
   const upPct = totalPool > 0 ? (liveMarket!.totalUp / totalPool) * 100 : 50;
   const downPct = 100 - upPct;
 
-  // Betting locks 5 min before close (server enforces this too)
+  // Betting locks 5 min before close (server enforces this too).
+  // Use server-adjusted time to avoid client clock skew causing premature/late lock.
+  const serverNow = now + serverClockOffsetRef.current;
   const bettingLocked = liveMarket
-    ? now >= new Date(liveMarket.closeAt).getTime() - LOCK_BUFFER_MS
+    ? serverNow >= new Date(liveMarket.closeAt).getTime() - LOCK_BUFFER_MS
     : false;
 
   const isBelowMin = parsed > 0 && parsed < MIN_BET;

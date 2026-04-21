@@ -174,9 +174,6 @@ export async function POST(req: NextRequest) {
           { status: 503 }
         );
       }
-      if (appWalletBalance !== -1) {
-        console.log(`[withdraw] Pre-flight: app wallet has ${appWalletBalance} CBTC, requested ${amount} CBTC`);
-      }
 
       // --- Step 1: Atomically deduct balance + create PENDING withdrawal record ---
       //
@@ -266,13 +263,19 @@ export async function POST(req: NextRequest) {
           ]);
         } catch (rollbackErr) {
           // CRITICAL: rollback failed — user's balance is missing from DB but no transfer happened.
-          // Ops must manually: UPDATE withdrawals SET status='FAILED' WHERE id=<id>;
-          //                    UPDATE users SET app_balance = app_balance + <amount> WHERE id=<userId>;
+          // Mark as FAILED_ROLLBACK so it's queryable for reconciliation.
+          // Ops must manually refund: UPDATE users SET app_balance = app_balance + <amount> WHERE id=<userId>;
           console.error(
             `[withdraw] ROLLBACK FAILED for withdrawal ${withdrawalId} — manual reconciliation required.`,
             `userId=${user.id} amount=${amount} CBTC`,
             rollbackErr
           );
+          // Best-effort: mark as FAILED_ROLLBACK so ops can find it with:
+          // SELECT * FROM withdrawals WHERE status = 'FAILED_ROLLBACK';
+          prisma.withdrawal.update({
+            where: { id: withdrawalId },
+            data: { status: "FAILED_ROLLBACK" },
+          }).catch((e) => console.error(`[withdraw] Could not mark FAILED_ROLLBACK for ${withdrawalId}:`, e));
         }
 
         return NextResponse.json(
