@@ -3,8 +3,8 @@ import { prisma } from "@/lib/prisma";
 import { requireAuth } from "@/lib/api-auth";
 import { getPendingTransferInstructions, acceptTransferInstruction } from "@/lib/canton";
 
-const MIN_DEPOSIT = 0.00001; // 1000 satoshis
-const MAX_DEPOSIT = 100;     // 100 CBTC
+const MIN_DEPOSIT = 0.0001; // 10,000 satoshis — minimum viable deposit
+const MAX_DEPOSIT = 100;    // 100 CBTC
 
 // In-memory lock to prevent same user from running concurrent deposit polls.
 // Without this, a user could open 10 tabs and hammer /api/deposit concurrently,

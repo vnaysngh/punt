@@ -13,6 +13,7 @@ import type { Variants } from "framer-motion";
 type Props = { open: boolean; onClose: () => void };
 type Step = "input" | "confirming" | "success" | "error" | "timeout";
 
+const MIN_DEPOSIT = 0.0001;
 const QUICK = [0.001, 0.005, 0.01, 0.05];
 
 const MODAL: Variants = {
@@ -35,13 +36,14 @@ export default function DepositModal({ open, onClose }: Props) {
   const handleClose = () => { reset(); onClose(); };
 
   const parsed = parseFloat(amount);
-  const isValid = parsed > 0 && !isNaN(parsed);
+  const isBelowMin = !isNaN(parsed) && parsed > 0 && parsed < MIN_DEPOSIT;
+  const isValid = !isNaN(parsed) && parsed >= MIN_DEPOSIT;
 
   const appPartyId = process.env.NEXT_PUBLIC_APP_PARTY_ID;
   const hasAppParty = !!appPartyId && appPartyId !== "your-app-party-id";
 
   const handleDeposit = async () => {
-    if (!isValid || !partyId || !sessionToken) return;
+    if (!isValid || parsed < MIN_DEPOSIT || !partyId || !sessionToken) return;
     setStep("confirming");
     setError(null);
 
@@ -225,6 +227,13 @@ export default function DepositModal({ open, onClose }: Props) {
                       </div>
                     </div>
 
+                    {/* Below min warning */}
+                    {isBelowMin && (
+                      <p className="text-red-400/80 text-xs text-center -mt-1" style={{ fontFamily: "var(--font-space-mono)" }}>
+                        Minimum deposit is {MIN_DEPOSIT} CBTC
+                      </p>
+                    )}
+
                     {/* Quick amounts */}
                     <div className="grid grid-cols-4 gap-2">
                       {QUICK.map((a) => (
@@ -254,7 +263,7 @@ export default function DepositModal({ open, onClose }: Props) {
                         fontFamily: "var(--font-syne)",
                       }}
                     >
-                      {isValid ? `Deposit ${fmt(parsed)} CBTC` : "Enter an amount"}
+                      {isValid ? `Deposit ${fmt(parsed)} CBTC` : isBelowMin ? `Min deposit is ${MIN_DEPOSIT} CBTC` : "Enter an amount"}
                     </button>
                   </motion.div>
                 )}
