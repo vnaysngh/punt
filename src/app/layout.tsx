@@ -26,21 +26,21 @@ const spaceMono = Space_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Punt - Canton Network Prediction Markets",
-  description: "15-minute CBTC prediction markets on Canton Network",
+  title: "Punt — BTC Prediction Markets on Canton Network",
+  description: "Trade 15-minute BTC/USD prediction markets on Canton Network. Pick UP or DOWN, place your bet in CBTC, and win based on where Bitcoin moves. Fast, on-chain, instant settlement.",
   openGraph: {
-    title: "Punt",
-    description: "15-minute BTC prediction markets on Canton Network",
+    title: "Punt — BTC Prediction Markets on Canton Network",
+    description: "Trade 15-minute BTC/USD prediction markets on Canton Network. Pick UP or DOWN, place your bet in CBTC, and win based on where Bitcoin moves.",
     url: "https://takeapunt.bet",
     siteName: "Punt",
-    images: [{ url: "/opengraph-image.png", width: 1200, height: 630 }],
+    images: [{ url: "https://takeapunt.bet/opengraph-image.png", width: 1200, height: 630 }],
     type: "website"
   },
   twitter: {
     card: "summary_large_image",
-    title: "Punt",
-    description: "15-minute BTC prediction markets on Canton Network",
-    images: ["/opengraph-image.png"]
+    title: "Punt — BTC Prediction Markets on Canton Network",
+    description: "Trade 15-minute BTC/USD prediction markets on Canton Network. Pick UP or DOWN, place your bet in CBTC, and win based on where Bitcoin moves.",
+    images: ["https://takeapunt.bet/opengraph-image.png"]
   }
 };
 
