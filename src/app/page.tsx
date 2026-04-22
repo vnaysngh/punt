@@ -373,27 +373,27 @@ export default function MarketsPage() {
           initial={{ opacity: 0, y: -12 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.4 }}
-          className="flex items-center justify-between mb-8"
+          className="flex items-center justify-between mb-8 gap-3"
         >
-          <div className="flex items-center gap-2.5">
-            <div className="w-1.5 h-1.5 rounded-full bg-[#28cc95] pulse-dot" />
+          <div className="flex items-center gap-2 min-w-0">
+            <div className="w-1.5 h-1.5 rounded-full bg-[#28cc95] pulse-dot shrink-0" />
             <span
-              className="text-[#28cc95]/70 text-xs font-semibold uppercase tracking-widest"
+              className="text-[#28cc95]/70 text-xs font-semibold uppercase tracking-widest truncate"
               style={{ fontFamily: "var(--font-space-mono)" }}
             >
-              Canton Network · BTC/USD · 15-min rounds
+              <span className="hidden sm:inline">Canton Network · </span>BTC/USD · 15-min rounds
             </span>
           </div>
 
           {/* Live price chip */}
           <div
-            className="flex items-center gap-2.5 px-4 py-2 rounded-xl"
+            className="flex items-center gap-1.5 px-3 py-2 rounded-xl shrink-0"
             style={{
               background: "rgba(255,255,255,0.03)",
               border: "1px solid rgba(255,255,255,0.07)"
             }}
           >
-            <Bitcoin className="w-4 h-4 text-amber-400 shrink-0" />
+            <Bitcoin className="w-3.5 h-3.5 text-amber-400 shrink-0" />
             <AnimatePresence mode="wait">
               {btcPrice ? (
                 <motion.span
@@ -412,14 +412,10 @@ export default function MarketsPage() {
                   )}
                   style={{ fontFamily: "var(--font-space-mono)" }}
                 >
-                  $
-                  {btcPrice.toLocaleString("en-US", {
-                    minimumFractionDigits: 2,
-                    maximumFractionDigits: 2
-                  })}
+                  ${btcPrice.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                 </motion.span>
               ) : (
-                <div className="h-4 w-24 rounded skeleton" />
+                <div className="h-4 w-20 rounded skeleton" />
               )}
             </AnimatePresence>
             {priceDir && (
@@ -427,18 +423,12 @@ export default function MarketsPage() {
                 initial={{ opacity: 0, scale: 0.7 }}
                 animate={{ opacity: 1, scale: 1 }}
                 exit={{ opacity: 0 }}
-                className={clsx(
-                  "text-xs font-bold",
-                  priceDir === "up" ? "text-green-400" : "text-red-400"
-                )}
+                className={clsx("text-xs font-bold", priceDir === "up" ? "text-green-400" : "text-red-400")}
               >
                 {priceDir === "up" ? "▲" : "▼"}
               </motion.span>
             )}
-            <span
-              className="text-white/20 text-[10px]"
-              style={{ fontFamily: "var(--font-space-mono)" }}
-            >
+            <span className="text-white/20 text-[10px] hidden sm:inline" style={{ fontFamily: "var(--font-space-mono)" }}>
               · live
             </span>
           </div>
@@ -510,12 +500,12 @@ export default function MarketsPage() {
             transition={{ duration: 0.5 }}
           >
             {/* ─── Market question row ─── */}
-            <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4 mb-8">
-              <div className="flex-1">
+            <div className="flex items-start justify-between gap-4 mb-8">
+              <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-2 mb-3">
                   {isOpen ? (
                     <span
-                      className="flex items-center gap-1.5 text-[11px] font-bold px-2.5 py-1 rounded-lg"
+                      className="flex items-center gap-1.5 text-[11px] font-bold px-2.5 py-1 rounded-lg shrink-0"
                       style={{
                         background: "rgba(40,204,149,0.12)",
                         color: "#5dd9ab",
@@ -527,7 +517,7 @@ export default function MarketsPage() {
                     </span>
                   ) : (
                     <span
-                      className="flex items-center gap-1.5 text-[11px] font-bold px-2.5 py-1 rounded-lg"
+                      className="flex items-center gap-1.5 text-[11px] font-bold px-2.5 py-1 rounded-lg shrink-0"
                       style={{
                         background: "rgba(251,191,36,0.08)",
                         color: "#fbbf24",
@@ -551,7 +541,7 @@ export default function MarketsPage() {
                 >
                   {liveMarket.question}
                 </h1>
-                <div className="flex items-center gap-4 mt-3">
+                <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 mt-3">
                   <div className="flex items-center gap-1.5">
                     <span className="text-white/25 text-xs">Locked price</span>
                     <span
@@ -565,7 +555,7 @@ export default function MarketsPage() {
                       })}
                     </span>
                   </div>
-                  <span className="text-white/10">·</span>
+                  <span className="text-white/10 hidden sm:inline">·</span>
                   <div className="flex items-center gap-1.5">
                     <span className="text-white/25 text-xs">Pool</span>
                     <span
@@ -575,7 +565,7 @@ export default function MarketsPage() {
                       {fmt(totalPool)} CBTC
                     </span>
                   </div>
-                  <span className="text-white/10">·</span>
+                  <span className="text-white/10 hidden sm:inline">·</span>
                   <span className="text-white/25 text-xs">
                     Fee{" "}
                     <span
@@ -585,9 +575,9 @@ export default function MarketsPage() {
                       5%
                     </span>
                   </span>
-                  <span className="text-white/10">·</span>
+                  <span className="text-white/10 hidden sm:inline">·</span>
                   <span className="text-white/25 text-xs">
-                    Min Bet &nbsp;
+                    Min Bet{" "}
                     <span
                       className="text-white/40 font-semibold"
                       style={{ fontFamily: "var(--font-space-mono)" }}
@@ -598,13 +588,12 @@ export default function MarketsPage() {
                 </div>
               </div>
 
-              {/* Timer */}
-              <div className="flex flex-col items-center gap-1 shrink-0">
+              {/* Timer — top-right on all screen sizes */}
+              <div className="shrink-0 pt-0.5">
                 <MarketTimer
                   closeAt={liveMarket.closeAt}
                   onExpire={onTimerExpire}
                 />
-                {/* <span className="text-white/20 text-[10px] uppercase tracking-wider" style={{ fontFamily: "var(--font-space-mono)" }}>remaining</span> */}
               </div>
             </div>
 
@@ -1279,7 +1268,7 @@ export default function MarketsPage() {
                     </div>
 
                     {/* Stats row */}
-                    <div className="grid grid-cols-3 gap-3 mb-5">
+                    <div className="grid grid-cols-3 gap-2 sm:gap-3 mb-5">
                       <div
                         className="rounded-xl p-3 text-center"
                         style={{
@@ -1367,7 +1356,7 @@ export default function MarketsPage() {
                       return (
                         <div
                           key={bet.id}
-                          className="flex items-center justify-between px-3.5 py-2.5 rounded-xl"
+                          className="flex items-center justify-between gap-2 px-3.5 py-2.5 rounded-xl"
                           style={{
                             background: "rgba(255,255,255,0.02)",
                             border: "1px solid rgba(255,255,255,0.04)"
@@ -1375,7 +1364,7 @@ export default function MarketsPage() {
                         >
                           {/* Masked address */}
                           <span
-                            className="text-white/30 text-xs font-mono"
+                            className="text-white/30 text-xs font-mono truncate min-w-0"
                             style={{ fontFamily: "var(--font-space-mono)" }}
                           >
                             {bet.maskedId}
@@ -1462,7 +1451,7 @@ export default function MarketsPage() {
                       return (
                         <div
                           key={m.id}
-                          className="flex items-center justify-between px-5 py-3.5 rounded-xl"
+                          className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 px-4 sm:px-5 py-3.5 rounded-xl"
                           style={{
                             background: "rgba(255,255,255,0.02)",
                             border: "1px solid rgba(255,255,255,0.05)"
@@ -1511,7 +1500,7 @@ export default function MarketsPage() {
                               </span>
                             )}
                           </div>
-                          <div className="flex items-center gap-4">
+                          <div className="flex items-center gap-3 flex-wrap">
                             {myb && (
                               <span
                                 className={clsx(

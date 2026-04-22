@@ -52,7 +52,7 @@ export default function Navbar() {
   const openDropdown = () => {
     if (triggerRef.current) {
       const r = triggerRef.current.getBoundingClientRect();
-      setDropdownPos({ top: r.bottom + 8, right: window.innerWidth - r.right });
+      setDropdownPos({ top: r.bottom + 8, right: Math.max(8, window.innerWidth - r.right) });
     }
     setDropdownOpen(true);
   };
@@ -98,7 +98,7 @@ export default function Navbar() {
         {/* Glass background — isolated so it doesn't trap dropdown stacking context */}
         <div className="absolute inset-0 bg-[#080811]/80 backdrop-blur-2xl border-b border-white/[0.05]" />
 
-        <div className="relative max-w-7xl mx-auto px-4 sm:px-6 h-full flex items-center justify-between gap-6">
+        <div className="relative max-w-7xl mx-auto px-3 sm:px-6 h-full flex items-center justify-between gap-2 sm:gap-6">
           {/* Logo */}
           <Link href="/" className="flex items-center gap-2.5 group shrink-0">
             <span
@@ -110,13 +110,13 @@ export default function Navbar() {
           </Link>
 
           {/* Nav links */}
-          <div className="hidden sm:flex items-center gap-1 flex-1">
+          <div className="flex items-center gap-1 flex-1">
             {NAV_LINKS.map(({ href, label }) => (
               <Link
                 key={href}
                 href={href}
                 className={clsx(
-                  "relative px-4 py-2 text-sm font-medium transition-colors",
+                  "relative px-2 sm:px-4 py-2 text-sm font-medium transition-colors",
                   pathname === href
                     ? "text-white"
                     : "text-white/40 hover:text-white/70"
@@ -138,11 +138,11 @@ export default function Navbar() {
           <div className="flex items-center gap-2 shrink-0">
             {connected ? (
               <>
-                {/* Balance chip — visible on all screen sizes */}
+                {/* Balance chip — hidden on mobile */}
                 <motion.div
                   initial={{ opacity: 0, scale: 0.8 }}
                   animate={{ opacity: 1, scale: 1 }}
-                  className="flex items-center gap-1.5 h-9 px-3 rounded-xl bg-[#28cc95]/10 border border-[#28cc95]/20"
+                  className="hidden sm:flex items-center gap-1.5 h-9 px-3 rounded-xl bg-[#28cc95]/10 border border-[#28cc95]/20"
                 >
                   <Bitcoin className="w-3.5 h-3.5 text-[#28cc95] shrink-0" />
                   <span
@@ -206,7 +206,7 @@ export default function Navbar() {
               <button
                 onClick={handleConnectLoop}
                 disabled={connecting || verifyOpen}
-                className="relative group h-9 px-4 rounded-xl text-sm font-semibold text-black transition-all duration-300 overflow-hidden disabled:opacity-60"
+                className="relative group h-9 px-3 sm:px-4 rounded-xl text-sm font-semibold text-black transition-all duration-300 overflow-hidden disabled:opacity-60 shrink-0"
                 style={{ fontFamily: "var(--font-syne)" }}
               >
                 <div className="absolute inset-0 bg-gradient-to-r from-[#28cc95] to-[#1fa876] group-hover:from-[#28cc95] group-hover:to-[#28cc95] transition-all duration-300" />
@@ -220,7 +220,8 @@ export default function Navbar() {
                   ) : (
                     <Wallet className="w-3.5 h-3.5 text-black" />
                   )}
-                  {connecting ? "Connecting…" : "Connect Wallet"}
+                  <span className="hidden sm:inline">{connecting ? "Connecting…" : "Connect Wallet"}</span>
+                  <span className="sm:hidden">{connecting ? "…" : "Connect"}</span>
                 </span>
               </button>
             )}
