@@ -1,36 +1,64 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Punt — Binary Prediction Market on Canton Network
 
-## Getting Started
+**Punt** is a perpetual binary prediction market where users bet CBTC (Canton Bitcoin) on whether BTC/USD will go UP or DOWN over 15-minute rounds. Built on Canton Network with Loop Wallet integration.
 
-First, run the development server:
+🌐 **Live at:** [takeapunt.bet](https://takeapunt.bet)
+
+---
+
+## What It Is
+
+Every 15 minutes, a new round opens. Users pick UP or DOWN on the BTC/USD price. At close, the live price is fetched, winners split the pool (minus a 5% platform fee), and a new round starts immediately. Betting locks 5 minutes before each round closes.
+
+## Tech Stack
+
+- **Frontend:** Next.js 16 (App Router), React 19, Tailwind CSS v4, Framer Motion
+- **Backend:** Next.js API routes, PostgreSQL (Supabase), Prisma ORM
+- **Blockchain:** Canton Network — CBTC token transfers via Loop SDK
+- **Auth:** Ed25519 challenge-response signatures + JWT sessions
+- **Price Oracle:** Chainlink on Arbitrum → Binance → Coinbase → Kraken → CoinGecko
+- **Deployment:** Vercel (frontend + API + crons)
+
+## Wallets Supported
+
+- **Loop Wallet** — QR-based mobile wallet (primary)
+- **Console Wallet** — browser extension
+
+## Quick Start
 
 ```bash
+npm install
+cp .env.example .env.local
+# fill in .env.local
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+See `.env.example` for all required environment variables.
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+## Key Environment Variables
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+| Variable | Description |
+|---|---|
+| `DATABASE_URL` | PostgreSQL connection string |
+| `JWT_SECRET` | HS256 JWT signing secret |
+| `LOOP_PRIVATE_KEY` | Operator Canton private key |
+| `APP_PARTY_ID` | Operator Canton party ID |
+| `CRON_SECRET` | Secret for authenticating cron routes |
+| `NEXT_PUBLIC_LOOP_NETWORK` | `mainnet` or `devnet` |
+| `NEXT_PUBLIC_CBTC_INSTRUMENT_ID` | CBTC token instrument ID on Canton |
 
-## Learn More
+## Project Structure
 
-To learn more about Next.js, take a look at the following resources:
-
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
-
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
-
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+```
+src/
+├── app/
+│   ├── page.tsx              — Main betting UI
+│   ├── portfolio/page.tsx    — User balance & history
+│   └── api/                  — All API routes
+├── components/               — UI components
+├── lib/                      — Server utilities (canton, auth, price)
+├── store/                    — Zustand state (wallet, markets)
+└── workers/start-cron.ts     — Standalone cron process
+prisma/schema.prisma          — DB schema
+vercel.json                   — Cron schedules
+```
